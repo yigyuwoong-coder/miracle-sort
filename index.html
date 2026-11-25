@@ -16,6 +16,7 @@
     </div>
     <nav class="top-actions">
       <button type="button" class="share-btn" id="shareBtn">공유하기</button>
+      <button type="button" class="navlink" id="verifyBtn">진위 확인</button>
       <button type="button" class="navlink" id="donateBtn">개발자 후원</button>
       <a class="navlink" href="bench.html">해싱 성능 측정 →</a>
     </nav>
@@ -91,6 +92,25 @@
       <button type="button" id="copyLink">링크 복사</button>
     </div>
     <p class="modal-note" id="shareNote">비트 수가 클수록 등급이 올라가고 카드가 더 화려해진다.</p>
+  </dialog>
+
+  <dialog id="verifyDialog" class="modal">
+    <form method="dialog" class="modal-head">
+      <h2>정품 인증 확인</h2>
+      <button value="close" aria-label="닫기">✕</button>
+    </form>
+    <form id="verifyForm" class="verify-form">
+      <input id="verifyInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="인증 코드 (예: 2048-1a2b3c-1-9f8e7d6c)">
+      <button type="submit" class="primary">확인</button>
+    </form>
+    <p class="verify-status" id="verifyStatus" aria-live="polite"></p>
+    <div id="verifyResult" hidden>
+      <canvas id="verifyCanvas" class="card-preview" aria-label="다시 계산한 진짜 결과 카드"></canvas>
+      <div class="modal-btns">
+        <button type="button" id="verifySave" class="primary">이미지 저장</button>
+        <button type="button" id="verifyTry">나도 해보기</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="donateDialog" class="modal donate">

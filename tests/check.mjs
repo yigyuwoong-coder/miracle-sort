@@ -1,23 +1,21 @@
 // 정확성 검사: node tests/check.mjs
 import { mulberry32 } from '../js/sim/rng.js';
-import { World } from '../js/sim/world.js';
+import { World, lgAdd } from '../js/sim/world.js';
 import { Memory, log10SortedProbability } from '../js/sim/memory.js';
 import { SpatialHash, sweptHit, bruteHit } from '../js/sim/spatial-hash.js';
 import { makeBelt } from '../js/sim/orbits.js';
-import {
-  HASH_CELL, BELT_IN, BELT_OUT, AST_R_MIN, AST_R_MAX, WIND_VMAX, DT,
-  SEU_PER_BIT_HOUR, STEPS_PER_YEAR, EARTH_HITS_PER_STEP, flipsPerYear, flipProbabilityPerHit,
-} from '../js/sim/constants.js';
+import { FlipProcess, replayMiracle, EXACT_CAP } from '../js/sim/flips.js';
+import { makeCode, parseCode, certHash } from '../js/cert.js';
+import { HASH_CELL, BELT_IN, BELT_OUT, AST_R_MIN, AST_R_MAX, WIND_VMAX, DT, SEU_PER_BIT_HOUR, flipsPerYear } from '../js/sim/constants.js';
 
 let failed = 0;
 const ok = (cond, msg) => { console.log(cond ? '  ✓' : '  ✗', msg); if (!cond) failed++; };
+const isSorted = (a) => { for (let i = 1; i < a.length; i++) if (a[i - 1] > a[i]) return false; return true; };
 
 console.log('1) 이동 구간 충돌: 빠른 입자가 작은 소행성을 뚫고 지나가지 않는다');
 {
-  // 반지름 0.003 소행성을 한 스텝에 0.05만큼 지나가는 입자: 양 끝점은 밖이지만 경로가 관통
   const r2 = 0.003 ** 2;
-  const endpointsOnly = 0.025 ** 2 < r2;
-  ok(!endpointsOnly && sweptHit(-0.025, 0.001, 0.025, 0.001, 0, 0, 0, 0, r2), '끝점만 보면 놓치는 충돌을 이동 구간 판정은 잡는다');
+  ok(sweptHit(-0.025, 0.001, 0.025, 0.001, 0, 0, 0, 0, r2), '끝점만 보면 놓치는 충돌을 이동 구간 판정은 잡는다');
   ok(!sweptHit(-0.025, 0.01, 0.025, 0.01, 0, 0, 0, 0, r2), '비껴가는 경로는 충돌이 아니다');
   ok(sweptHit(0.01, 0, 0.01, 0, 0, 0, 0.02, 0, r2), '천체가 움직여 와서 닿는 경우도 잡는다 (상대 운동)');
 }
@@ -25,7 +23,7 @@ console.log('1) 이동 구간 충돌: 빠른 입자가 작은 소행성을 뚫�
 console.log('2) 공간 해싱 vs 전수 검사 — 무작위 이동 구간 20만 개');
 {
   const B = makeBelt(4000, mulberry32(5), BELT_IN, BELT_OUT, AST_R_MIN, AST_R_MAX);
-  B.setEpoch(0); B.update(0, false); B.update(0.001, true); // 직전·현재 위치 모두 채운다
+  B.setEpoch(0); B.update(0, false); B.update(0.001, true);
   const H = new SpatialHash(HASH_CELL);
   H.build(B.n, B.x, B.y);
   const rnd = mulberry32(6);
@@ -42,15 +40,11 @@ console.log('2) 공간 해싱 vs 전수 검사 — 무작위 이동 구간 20만
 
 console.log('3) 전체 시뮬레이션: 해싱 사용 vs 미사용이 같은 결과를 내는가 (300스텝)');
 {
-  const cfg = { n: 6, asteroids: 2000, seed: 77, pFlip: 0.5 }; // 플립이 충분히 생기도록 확률을 키움
-  const A = new World({ ...cfg, hashing: false });
-  const Bw = new World({ ...cfg, hashing: true });
-  let mA = 0, mB = 0;
-  for (let s = 0; s < 300; s++) { if (A.step()) mA++; if (Bw.step()) mB++; }
+  const A = new World({ n: 6, asteroids: 2000, seed: 77, hashing: false });
+  const Bw = new World({ n: 6, asteroids: 2000, seed: 77, hashing: true });
+  for (let s = 0; s < 300; s++) { A.step(); Bw.step(); }
   const key = (W) => Array.from({ length: W.particles.count }, (_, i) => `${W.particles.x[i]},${W.particles.y[i]}`).sort().join('|');
-  const same = A.earthHits === Bw.earthHits && A.memory.flips === Bw.memory.flips &&
-    A.memory.a.every((v, i) => v === Bw.memory.a[i]) && mA === mB && key(A) === key(Bw);
-  ok(same && A.memory.flips > 0, `지구 피격 ${A.earthHits}/${Bw.earthHits}, 비트 플립 ${A.memory.flips}/${Bw.memory.flips}, 입자 ${A.particles.count}/${Bw.particles.count}, 기적 ${mA}/${mB}`);
+  ok(A.earthHits === Bw.earthHits && key(A) === key(Bw), `지구 피격 ${A.earthHits}/${Bw.earthHits}, 입자 ${A.particles.count}/${Bw.particles.count}, 위치 집합 동일`);
 }
 
 console.log('4) 정렬 판정: O(1) 갱신 vs 전체 다시 세기 — 비트 플립 2만 번');
@@ -74,129 +68,87 @@ console.log('5) 정렬 확률 공식 C(N+255, N) / 256^N');
   ok(Math.abs(hit / T - p4) / p4 < 0.05, `N=4: 공식 ${p4.toFixed(5)} vs 몬테카를로 ${(hit / T).toFixed(5)}`);
 }
 
-console.log('6) 비트 플립 확률 보정 (현실 소프트 에러율)');
+console.log('6) 비트 플립 빈도 (현실 소프트 에러율)');
 {
   const yr = flipsPerYear(6);
   ok(Math.abs(yr - SEU_PER_BIT_HOUR * 48 * 8766) < 1e-24, `6바이트: 1년 기대 플립 ${yr.toExponential(2)}회 → 평균 ${(1 / yr / 1e4).toFixed(0)}만 년에 한 번`);
-  const back = flipProbabilityPerHit(6) * EARTH_HITS_PER_STEP * STEPS_PER_YEAR;
-  ok(Math.abs(back - yr) / yr < 1e-12, `피격당 확률 ${flipProbabilityPerHit(6).toExponential(2)} × 연간 피격 ${(EARTH_HITS_PER_STEP * STEPS_PER_YEAR).toFixed(0)}회 = 연간 기대 플립`);
+  const P = new FlipProcess(64, 7); // 512비트: 이 정도 플립 안에서는 기적이 나지 않는다
+  const years = 1e5 / P.rate;
+  const info = P.advance(Math.log10(years));
+  const mean = P.rate * years, sd = Math.sqrt(mean);
+  ok(!info && Math.abs(P.total - mean) < 4 * sd, `${years.toExponential(2)}년 동안 플립 ${P.total}회 (포아송 기대 ${mean.toFixed(0)} ± ${sd.toFixed(0)})`);
 }
 
-console.log('7) 천문 시간 (사건 기반): 비트 플립 수가 포아송 분포와 맞는가');
+console.log('7) 기적까지 평균 시간: 독립 몬테카를로와 비교 (N=4, 정확 계산 구간)');
 {
-  const W = new World({ n: 6, seed: 3 });
-  const years = 5e9;
-  W.advance(years, 1e9);
-  // 기적이 나면 멈추므로, 멈춘 시각까지의 플립 수로 비교
-  const mean = W.flipRate * W.years, sd = Math.sqrt(mean);
-  ok(Math.abs(W.memory.flips - mean) < 4 * sd,
-    `${(W.years / 1e8).toFixed(2)}억 년 동안 플립 ${W.memory.flips}회 (기대 ${mean.toFixed(0)} ± ${sd.toFixed(0)})${W.miracleYear ? ' · 기적에서 멈춤' : ''}`);
-}
-
-console.log('8) 천문 시간에서 기적: 정확한 시각에 멈추고 배열이 실제로 정렬돼 있다');
-{
-  const years = [];
-  for (let seed = 1; seed <= 200; seed++) {
-    const W = new World({ n: 4, seed, asteroids: 0 });
-    while (!W.advance(1e10, 1e9));
-    const a = Array.from(W.memory.a);
-    if (!a.every((v, i) => i === 0 || a[i - 1] <= v) || W.years !== W.miracleYear) { failed++; console.log('  ✗ seed', seed); }
-    years.push(W.miracleYear);
-  }
-  const avg = years.reduce((s, v) => s + v) / years.length;
-  // 독립 확인: 배열 비트를 직접 하나씩 뒤집어 처음 정렬될 때까지의 평균 플립 수 (몬테카를로)
-  const r = mulberry32(404);
-  const isSorted = (a) => { for (let i = 1; i < a.length; i++) if (a[i - 1] > a[i]) return false; return true; };
   let sum = 0;
+  const K = 400;
+  for (let s = 1; s <= K; s++) sum += 10 ** replayMiracle(4, s, 1).lg;
+  const r = mulberry32(404);
+  let flips = 0;
   const T = 20000;
   for (let t = 0; t < T; t++) {
     const a = new Uint8Array(4);
     do { for (let i = 0; i < 4; i++) a[i] = (r() * 256) | 0; } while (isSorted(a));
     let k = 0;
     do { a[(r() * 4) | 0] ^= 1 << ((r() * 8) | 0); k++; } while (!isSorted(a));
-    sum += k;
+    flips += k;
   }
-  const expectYears = sum / T / flipsPerYear(4);
-  ok(Math.abs(avg - expectYears) / expectYears < 0.25,
-    `N=4, 200번: 기적까지 평균 ${(avg / 1e8).toFixed(2)}억 년 · 독립 계산 ${(sum / T).toFixed(0)}회 플립 = ${(expectYears / 1e8).toFixed(2)}억 년`);
+  const expect = flips / T / flipsPerYear(4);
+  ok(Math.abs(sum / K / expect - 1) < 0.2, `평균 ${(sum / K / 1e8).toFixed(2)}억 년 · 독립 계산 ${(expect / 1e8).toFixed(2)}억 년`);
 }
 
-console.log('9) 초고속 건너뛰기: 끝 상태가 하나씩 센 결과와 같은 분포인가');
+console.log('8) 재현성: 화면처럼 들쭉날쭉 나눠 진행해도 처음부터 다시 계산한 결과와 같다');
+for (const [n, seed] of [[4, 31], [8, 32], [16, 33]]) {
+  const P = new FlipProcess(n, seed);
+  const rnd = mulberry32(seed);
+  let info = null, calls = 0;
+  while (!info) { info = P.advance(lgAdd(P.reachedLg, 1 + rnd() * (n >= 16 ? 30 : 6)), 1 + rnd() * 4); calls++; }
+  const R = replayMiracle(n, seed, 1);
+  ok(R.total === info.total && R.values.join() === info.values.join() && R.lg === info.lg && isSorted(R.values),
+    `${n * 8}비트: ${calls}조각으로 나눠도 같은 기적 (10^${R.lg.toFixed(2)}년, 플립 ${R.total.toLocaleString()}회${R.approx ? ', 대충 계산' : ''})`);
+}
+
+console.log('9) 화면(World) 결과 = 인증 코드로 다시 계산한 결과');
 {
-  // 512비트 메모리를 Δ년 진행: 기대 플립 = B/2 → 각 비트가 바뀌어 있을 확률 (1 − e^(−1))/2 ≈ 0.316
-  const n = 64, B = n * 8, runs = 300;
-  let exact = 0, skip = 0;
-  for (let k = 0; k < runs; k++) {
-    const A = new World({ n, asteroids: 0, seed: 1000 + k });
-    const S = new World({ n, asteroids: 0, seed: 1000 + k });
-    const a0 = Uint8Array.from(A.memory.a), s0 = Uint8Array.from(S.memory.a);
-    const dy = B / 2 / A.flipRate;
-    A.advance(dy, 1e9); // 하나씩 정확히
-    S._skipTo(S.years + dy); // 건너뛰기
-    const diff = (x, y) => { let d = 0; for (let i = 0; i < n; i++) { let v = x[i] ^ y[i]; while (v) { d += v & 1; v >>= 1; } } return d; };
-    exact += diff(a0, A.memory.a) / B;
-    skip += diff(s0, S.memory.a) / B;
-    if (S.memory.descents !== S.memory.countDescents()) failed++;
-  }
-  const expect = (1 - Math.exp(-1)) / 2;
-  ok(Math.abs(exact / runs - expect) < 0.01 && Math.abs(skip / runs - expect) < 0.01,
-    `바뀐 비트 비율: 하나씩 ${(exact / runs).toFixed(4)} · 건너뛰기 ${(skip / runs).toFixed(4)} · 이론 ${expect.toFixed(4)}`);
+  const W = new World({ n: 6, asteroids: 0, seed: 4242 });
+  let info = null;
+  for (let s = 0; s < 50 && !info; s++) W.step(); // 정밀 계산 조금
+  while (!info) info = W.advanceLg(lgAdd(W.lgYears, 9 - Math.log10(60)), 5); // 10억 년/초 프레임들
+  const R = replayMiracle(6, 4242, 1);
+  ok(R.total === info.total && R.values.join() === info.values.join() && isSorted(W.memory.a),
+    `48비트: 화면 기적 ${info.total}번째 플립 = 다시 계산 ${R.total}번째 플립`);
 }
 
-console.log('10) 초고속 건너뛰기는 정렬될 확률이 10⁻¹⁷ 미만일 때만 쓴다');
+console.log('10) 인증 코드: 진짜는 통과, 고친 코드는 실패');
 {
-  const big = new World({ n: 256, asteroids: 0, seed: 2 });
-  const target = big.years + 1e52;
-  big.advanceTo(target, 5);
-  ok(big.years === target && big.memory.descents === big.memory.countDescents(), '2048비트: 10⁵²년을 정확히 도달 (건너뛰기 증명 성립)');
-  const mid = new World({ n: 16, asteroids: 0, seed: 2 });
-  ok(!mid.canSkip(mid.years + 1e52), '128비트: 10⁵²년 안에 기적이 확실하므로 건너뛰지 않는다');
-  const after = new World({ n: 64, asteroids: 0, seed: 3 });
-  after.mixedSince = after.years; // 방금 기적이 난 것처럼 (정렬된 상태에서 출발)
-  ok(!after.canSkip(after.years + 1e52), '512비트라도 기적 직후 충분히 섞이기 전에는 건너뛰지 않는다');
+  const info = replayMiracle(8, 777, 1);
+  const code = await makeCode(64, 777, info);
+  const c = parseCode(code);
+  const again = replayMiracle(c.bits / 8, c.seed, c.m);
+  ok(c && (await certHash(c.bits, c.seed, again)) === c.h, `진짜 코드 ${code} → 다시 계산 결과와 일치`);
+  const forged = code.replace(/-([0-9a-f]{8})$/, (m, h) => `-${((parseInt(h, 16) ^ 1) >>> 0).toString(16).padStart(8, '0')}`);
+  const f = parseCode(forged);
+  ok((await certHash(f.bits, f.seed, replayMiracle(f.bits / 8, f.seed, f.m))) !== f.h, `검증값을 고친 코드 ${forged} → 실패`);
+  const otherSeed = await certHash(64, 778, replayMiracle(8, 778, 1));
+  ok(otherSeed !== c.h, '다른 시드의 결과로는 같은 검증값이 나오지 않는다');
+  ok(parseCode('2048-zzzz-1-xyz') === null && parseCode('99-1a-1-00000000') === null, '형식이 틀린 코드는 거부');
 }
 
-console.log('11) 대충 계산 (증명이 안 되는 크기): 기적 시각의 평균이 보정값과 맞는가');
-{
-  // 128비트: 1항하사 년/초면 첫 프레임에 기적이 나야 하고, 그때 메모리는 정렬돼 있어야 한다
-  const W = new World({ n: 16, asteroids: 0, seed: 4 });
-  const mir = W.advanceTo(W.years + 1e52 / 60, 5);
-  const a = Array.from(W.memory.a);
-  ok(mir && a.every((v, i) => !i || a[i - 1] <= v) && W.miracleYear === W.years,
-    `128비트: 첫 프레임에 ${W.miracleYear.toExponential(2)}년째 기적, 메모리 정렬됨`);
-  // 지수분포 근사의 평균이 보정값(평균 = c/정렬확률 플립)과 맞는지: 여러 번 뽑아 평균
-  let sum = 0;
-  const T = 4000;
-  for (let k = 0; k < T; k++) {
-    const V = new World({ n: 32, asteroids: 0, seed: 50 + k });
-    V._approxTo(1e300);
-    sum += V.miracleYear;
-  }
-  const lgMean = new World({ n: 32, asteroids: 0, seed: 1 }).meanMiracleLog10Years();
-  const ratio = sum / T / 10 ** lgMean;
-  ok(Math.abs(ratio - 1) < 0.1, `256비트: 뽑은 기적 시각 평균 / 보정 평균 = ${ratio.toFixed(3)} (평균 10^${lgMean.toFixed(1)}년)`);
-}
-
-console.log('12) 10^290년을 넘는 시간 (로그 시간 모드)');
+console.log('11) 10^290년을 넘는 시간 (로그 시간) + 대충 계산 구간');
 {
   const W = new World({ n: 256, asteroids: 0, seed: 21 }); // 2048비트, 평균 대기 약 10^469년
-  let mir = false, frames = 0;
-  while (!mir && frames < 600) { mir = W.advanceLg(Math.max(W.lgYears, 0) + Math.log10(1 + 10 ** (500 - Math.log10(60) - Math.max(W.lgYears, 0))), 5); frames++; }
-  const a = Array.from(W.memory.a);
-  ok(mir && W.bigLg > 290 && Number.isFinite(W.miracleLg) && a.every((v, i) => !i || a[i - 1] <= v),
-    `2048비트, 10^500년/초: ${frames}프레임 만에 10^${W.miracleLg.toFixed(1)}년째 기적, 메모리 정렬됨`);
-  const V = new World({ n: 4, asteroids: 0, seed: 22 });
-  V.advanceLg(400, 5);
-  ok(V.lgYears <= 400 && V.lgYears > 0, `작은 메모리는 10^400년 안에서 기적을 찾거나 그 시각에 도달 (지금 10^${V.lgYears.toFixed(1)}년)`);
+  let info = null, frames = 0;
+  while (!info && frames < 5000) { info = W.advanceLg(lgAdd(W.lgYears, 500 - Math.log10(60)), 50); frames++; }
+  ok(info && info.approx && W.bigLg > 290 && isSorted(W.memory.a), `2048비트, 10^500년/초: ${frames}프레임에 10^${info.lg.toFixed(1)}년째 기적 (먼저 플립 ${EXACT_CAP.toExponential(0)}회를 정확히 센 뒤 대충 계산)`);
 }
 
-console.log('13) 해금 코드 단계');
+console.log('12) 해금 코드 단계');
 {
-  // 코드 원문은 공개 저장소에 올리지 않는다. 로컬 파일(tests/codes.local.json, .gitignore에 포함)이 있을 때만 검사한다.
   const { readFileSync, existsSync } = await import('node:fs');
   const file = new URL('./codes.local.json', import.meta.url);
   if (!existsSync(file)) {
-    console.log('  - 건너뜀 (tests/codes.local.json 없음)');
+    console.log('  - 건너뜀 (tests/codes.local.json 없음 — 코드 원문은 공개 저장소에 올리지 않는다)');
   } else {
     const { toKeys, stageFromSuffix, stageAnywhere } = await import('../js/unlock.js');
     const P = JSON.parse(readFileSync(file, 'utf8'));
