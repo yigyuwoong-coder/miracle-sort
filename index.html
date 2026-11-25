@@ -14,7 +14,11 @@
       <h1 class="title">Miracle Sort</h1>
       <p class="tagline">태양 입자가 내 메모리의 비트를 뒤집어, 배열이 저절로 정렬될 때까지 기다린다</p>
     </div>
-    <a class="navlink" href="bench.html">해싱 성능 측정 →</a>
+    <nav class="top-actions">
+      <button type="button" class="share-btn" id="shareBtn">공유하기</button>
+      <button type="button" class="navlink" id="donateBtn">개발자 후원</button>
+      <a class="navlink" href="bench.html">해싱 성능 측정 →</a>
+    </nav>
   </header>
 
   <main class="stage">
@@ -38,7 +42,8 @@
         <div class="miracle-title">기적!</div>
         <div class="miracle-sub" id="miracleSub"></div>
         <div class="miracle-btns">
-          <button type="button" id="mContinue">계속 기다리기</button>
+          <button type="button" id="mShare">결과 공유</button>
+          <button type="button" id="mContinue" class="ghost">계속 기다리기</button>
           <button type="button" id="mRestart" class="ghost">처음부터</button>
         </div>
       </div>
@@ -60,13 +65,37 @@
 
     <section class="memory">
       <div class="mem-head">
-        <span class="mem-title">내 메모리</span>
+        <span class="mem-title">내 메모리 <b id="memBits"></b></span>
         <div class="chips" id="nChips"></div>
         <button type="button" class="ghost small" id="restart">처음부터</button>
       </div>
       <canvas id="mem" aria-label="메모리 배열"></canvas>
     </section>
   </main>
+
+  <dialog id="shareDialog" class="modal">
+    <form method="dialog" class="modal-head">
+      <h2>결과 카드</h2>
+      <button value="close" aria-label="닫기">✕</button>
+    </form>
+    <canvas id="cardPreview" class="card-preview" aria-label="결과 카드 미리보기"></canvas>
+    <div class="modal-btns">
+      <button type="button" id="saveImg" class="primary">이미지 저장</button>
+      <button type="button" id="shareNow">공유하기</button>
+      <button type="button" id="copyLink">링크 복사</button>
+    </div>
+    <p class="modal-note" id="shareNote">비트 수가 클수록 등급이 올라가고 카드가 더 화려해진다.</p>
+  </dialog>
+
+  <dialog id="donateDialog" class="modal donate">
+    <form method="dialog" class="modal-head">
+      <h2>개발자 후원</h2>
+      <button value="close" aria-label="닫기">✕</button>
+    </form>
+    <p class="donate-sub" id="donateSub">더 빠른 배속은 후원으로 해금된다.</p>
+    <div class="donate-box">카카오톡 : 이규웅 으로 송금하세요</div>
+    <form method="dialog" class="modal-btns"><button class="primary">닫기</button></form>
+  </dialog>
 
   <script type="module" src="js/main.js"></script>
 </body>
