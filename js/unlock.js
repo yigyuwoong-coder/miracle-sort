@@ -29,19 +29,39 @@ export function toKeys(text) {
   return out.toLowerCase();
 }
 
-export const CODE_LEN = 33;
-const CODE_HASH = '336c02eb5ade16bf8bad5e9a6386255309fc75a1d48eddf877415354feda80bf';
+// 해금 코드는 단계별로 4개. 앞 단계 코드는 다음 단계 코드의 앞부분이라, 끝까지 치면 차례로 열린다.
+// 소스에는 원문 대신 (글쇠 순서 문자열의) SHA-256 해시만 둔다.
+export const CODES = [
+  { stage: 1, len: 8, hash: '88e24f8a29df37ed77ecc84ebccf84fa0ef057735c872f41ebeae7535c9efbcc' },
+  { stage: 2, len: 13, hash: '9bfadc4ee4f5685814125b75c9e0fa4eac7a2105f71e56ff4cea038913392948' },
+  { stage: 3, len: 23, hash: 'ef37808ec96b577cadc1ed4148716cf27cc77baf0c0438763d150e4c310ad703' },
+  { stage: 4, len: 33, hash: '336c02eb5ade16bf8bad5e9a6386255309fc75a1d48eddf877415354feda80bf' },
+];
+export const MAX_CODE_LEN = Math.max(...CODES.map((c) => c.len));
 
 export async function sha256Hex(s) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// keys의 어느 연속 구간이든 코드와 같으면 true
-export async function matches(keys) {
-  if (keys.length < CODE_LEN || !globalThis.crypto?.subtle) return false;
-  for (let i = 0; i + CODE_LEN <= keys.length; i++) {
-    if ((await sha256Hex(keys.slice(i, i + CODE_LEN))) === CODE_HASH) return true;
+// 방금 친 글쇠들의 끝부분이 어느 단계 코드와 같은지 → 가장 높은 단계 (없으면 0)
+export async function stageFromSuffix(keys) {
+  if (!globalThis.crypto?.subtle) return 0;
+  let best = 0;
+  for (const c of CODES) {
+    if (keys.length >= c.len && (await sha256Hex(keys.slice(-c.len))) === c.hash) best = Math.max(best, c.stage);
   }
-  return false;
+  return best;
+}
+
+// 입력칸 내용 어딘가에 코드가 들어 있으면 → 가장 높은 단계
+export async function stageAnywhere(keys) {
+  if (!globalThis.crypto?.subtle) return 0;
+  let best = 0;
+  for (const c of CODES) {
+    for (let i = 0; i + c.len <= keys.length; i++) {
+      if ((await sha256Hex(keys.slice(i, i + c.len))) === c.hash) { best = Math.max(best, c.stage); break; }
+    }
+  }
+  return best;
 }

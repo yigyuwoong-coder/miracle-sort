@@ -1,15 +1,16 @@
 // 메인 화면: 배속, 지금 몇 년인지, 메모리, 해싱 실측, 결과 공유, 개발자 후원
-import { World } from './sim/world.js';
+import { World, lgAdd } from './sim/world.js';
 import { STEPS_PER_YEAR } from './sim/constants.js';
 import { SkyRenderer, MemoryRenderer } from './render.js';
-import { fmtYears } from './format.js';
+import { fmtYearsLg } from './format.js';
 import { drawCard, cardBlob, shareText, tierOf } from './share.js';
-import { toKeys, matches, CODE_LEN } from './unlock.js';
+import { toKeys, stageFromSuffix, stageAnywhere, MAX_CODE_LEN } from './unlock.js';
 
 // 정밀 계산: 입자 하나하나를 2.8시간 스텝마다 계산 (빠른 배속이면 여러 스텝을 계산하고 화면은 한 번만 그림)
 // 천문 시간: 비트가 뒤집히는 순간만 정확히 계산하고 그 사이는 건너뜀
-// limit: 1항하사(10⁵²) 년/초 — 셀 수 있는 만큼 플립을 정확히 세고, 나머지는 정렬될 수 없음이 증명될 때만 건너뜀
-//        (잠김: 후원 창 / 해금 코드)
+// 해금 배속 (stage = 필요한 해금 단계, lg = 1초에 흐르는 햇수의 log10):
+//   셀 수 있는 만큼 플립을 정확히 세고 → 정렬될 수 없음이 증명되면 건너뛰고 → 아니면 대충 계산.
+//   10^290년을 넘으면 시간을 로그로 저장한다. 잠긴 배속을 누르면 후원 창.
 const SPEEDS = [
   { label: '1주/초', yps: 7 / 365.25, astro: false },
   { label: '1달/초', yps: 1 / 12, astro: false },
@@ -18,7 +19,11 @@ const SPEEDS = [
   { label: '100만 년/초', yps: 1e6, astro: true },
   { label: '10억 년/초', yps: 1e9, astro: true },
   { label: '1조 년/초', yps: 1e12, astro: true },
-  { label: '1항하사 년/초', yps: 1e52, astro: true, limit: true },
+  { label: '1항하사 년/초', lg: 52, astro: true, stage: 1 },
+  { label: '1무량대수 년/초', lg: 68, astro: true, stage: 1 },
+  { label: '1구골 년/초', lg: 100, astro: true, stage: 2 },
+  { label: '1센틸리언 년/초', lg: 303, astro: true, stage: 3 },
+  { label: '1구골⁵ 년/초', lg: 500, astro: true, stage: 4 },
 ];
 const BYTES = [2, 3, 4, 6, 8, 10, 12, 16, 24, 32, 64, 128, 256]; // 16 ~ 2048비트
 const BUDGET_MS = 28; // 한 화면 프레임에서 정밀 계산에 쓸 최대 시간
@@ -26,8 +31,10 @@ const BUDGET_MS = 28; // 한 화면 프레임에서 정밀 계산에 쓸 최대 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const startBytes = BYTES.includes(+q.get('bits') / 8) ? +q.get('bits') / 8 : 6; // 공유 링크 ?bits=64
-let unlocked = false;
-try { unlocked = localStorage.getItem('miracle-sort-unlocked') === '1'; } catch { /* 저장소를 못 쓰면 매번 잠김 */ }
+let stage = 0; // 해금 단계 (0~4)
+try {
+  stage = +localStorage.getItem('miracle-sort-stage') || (localStorage.getItem('miracle-sort-unlocked') === '1' ? 4 : 0);
+} catch { /* 저장소를 못 쓰면 매번 잠김 */ }
 const state = { n: startBytes, speed: SPEEDS[0], paused: false, hashing: true };
 const sky = new SkyRenderer($('sky'));
 const memView = new MemoryRenderer($('mem'));
@@ -63,8 +70,8 @@ function frame(ts) {
     let miracle = false;
     const sp = state.speed;
     const y0 = world.years;
-    if (sp.limit) {
-      miracle = world.advanceTo(world.years + sp.yps * dt, BUDGET_MS);
+    if (sp.lg) {
+      if (dt > 0) miracle = world.advanceLg(lgAdd(world.lgYears, sp.lg + Math.log10(dt)), BUDGET_MS);
     } else if (sp.astro) {
       miracle = world.advance(sp.yps * dt);
     } else {
@@ -83,31 +90,30 @@ function frame(ts) {
 
   sky.draw(world, state.speed.astro);
   memView.draw(world.memory);
-  $('clock').textContent = fmtYears(world.years);
+  $('clock').textContent = fmtYearsLg(world.lgYears);
 }
 
 // 멈춰 있던 sec초 동안의 우주 시간을 계산한다. 그동안은 화면을 그릴 필요가 없으므로 입자 대신
 // 비트 플립 사건만 센다 (셀 수 없을 만큼 길면 증명된 건너뛰기 / 대충 계산).
 function catchUp(sec) {
   const sp = state.speed;
-  const yps = sp.yps === Infinity ? achievedYps : sp.yps;
-  if (!(yps > 0) || !(sec > 0)) return;
-  const y0 = world.years;
-  const miracle = world.advanceTo(y0 + yps * sec, 300);
+  const lgDelta = sp.lg ? sp.lg + Math.log10(sec) : Math.log10((sp.yps === Infinity ? achievedYps : sp.yps) * sec);
+  if (!(lgDelta > -Infinity)) return;
+  const miracle = world.advanceLg(lgAdd(world.lgYears, lgDelta), 300);
   if (!sp.astro) world.enterPrecise();
   lastWall = Date.now(); // 따라잡는 데 쓴 시간은 빼고
   const mins = sec >= 120 ? `${Math.round(sec / 60)}분` : `${Math.round(sec)}초`;
   toast(miracle
     ? `화면이 꺼져 있던 ${mins} 사이에 기적이 일어났다!`
-    : `화면이 꺼져 있던 ${mins} 동안 ${fmtYears(world.years - y0)}이 흘렀다`);
+    : `화면이 꺼져 있던 ${mins} 동안 ${fmtYearsLg(lgDelta)}이 흘렀다`);
   if (miracle) onMiracle();
 }
 
 function onMiracle() {
-  lastMiracle = { years: world.miracleYear, values: Array.from(world.memory.a) };
+  lastMiracle = { lg: world.miracleLg, values: Array.from(world.memory.a) };
   state.paused = true;
   syncUI();
-  $('miracleSub').textContent = `${state.n * 8}비트 메모리가 ${fmtYears(world.miracleYear)}째에 저절로 정렬됐다`;
+  $('miracleSub').textContent = `${state.n * 8}비트 메모리가 ${fmtYearsLg(world.miracleLg)}째에 저절로 정렬됐다`;
   $('miracle').hidden = false;
 }
 
@@ -128,7 +134,7 @@ SPEEDS.forEach((sp, i) => {
   b.type = 'button';
   b.dataset.i = i;
   b.addEventListener('click', () => {
-    if (sp.limit && !unlocked) { openDonate(sp.label); return; }
+    if (sp.stage > stage) { openDonate(sp); return; }
     if (state.speed.astro && !sp.astro) world.enterPrecise();
     state.speed = sp;
     stepAcc = 0;
@@ -136,14 +142,15 @@ SPEEDS.forEach((sp, i) => {
     $('miracle').hidden = true;
     syncUI();
   });
-  (sp.astro ? $('astroBtns') : $('preciseBtns')).appendChild(b);
+  (sp.stage ? $('unlockBtns') : sp.astro ? $('astroBtns') : $('preciseBtns')).appendChild(b);
 });
 function labelSpeeds() {
   for (const b of document.querySelectorAll('.group-btns button')) {
     const sp = SPEEDS[+b.dataset.i];
-    b.textContent = sp.limit ? `${sp.label} ${unlocked ? '⚡' : '🔒'}` : sp.label;
-    b.classList.toggle('locked', !!sp.limit && !unlocked);
-    b.classList.toggle('limit', !!sp.limit && unlocked);
+    const locked = sp.stage > stage;
+    b.textContent = sp.stage ? `${sp.label} ${locked ? '🔒' : '⚡'}` : sp.label;
+    b.classList.toggle('locked', locked);
+    b.classList.toggle('limit', !!sp.stage && !locked);
   }
 }
 labelSpeeds();
@@ -177,38 +184,40 @@ skyEl.addEventListener('pointercancel', endDrag);
 skyEl.addEventListener('dblclick', () => sky.resetView());
 
 // ───────────── 개발자 후원 ─────────────
-function openDonate(label) {
-  $('donateSub').textContent = unlocked
-    ? '1항하사 년/초가 이미 해금돼 있다. 응원해 주실 분은 아래로!'
-    : `"${label ?? '1항하사 년/초'}"는 후원으로 해금된다.`;
+function openDonate(sp) {
+  $('donateSub').textContent = sp
+    ? `"${sp.label}"는 후원으로 해금된다.`
+    : stage >= 4 ? '모든 배속이 해금돼 있다. 응원해 주실 분은 아래로!' : '더 빠른 배속은 후원으로 해금된다.';
   $('unlockCode').value = '';
   $('unlockMsg').textContent = '';
   $('donateDialog').showModal();
 }
 
-// ───────────── 해금 코드 ─────────────
-function unlock() {
-  if (unlocked) return;
-  unlocked = true;
-  try { localStorage.setItem('miracle-sort-unlocked', '1'); } catch { /* 이번 방문 동안만 해금 */ }
+// ───────────── 해금 코드 (4단계) ─────────────
+function unlockTo(next) {
+  if (next <= stage) return;
+  const opened = SPEEDS.filter((sp) => sp.stage > stage && sp.stage <= next).map((sp) => sp.label);
+  stage = next;
+  try { localStorage.setItem('miracle-sort-stage', String(stage)); } catch { /* 이번 방문 동안만 해금 */ }
   labelSpeeds();
   if ($('donateDialog').open) $('donateDialog').close();
-  toast('⚡ 해금! "1항하사 년/초"를 쓸 수 있다');
+  toast(`⚡ 해금 ${stage}단계! ${opened.join(', ')}`);
 }
 // 화면 아무 데서나 입력: 한/영 상태와 상관없이 물리 키(KeyD → d)로 모은다
 let typed = '';
 document.addEventListener('keydown', (e) => {
-  if (unlocked || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, textarea')) return;
+  if (stage >= 4 || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, textarea')) return;
   const m = /^Key([A-Z])$/.exec(e.code);
   if (!m) return;
-  typed = (typed + m[1].toLowerCase()).slice(-CODE_LEN);
-  if (typed.length === CODE_LEN) matches(typed).then((ok) => ok && unlock());
+  typed = (typed + m[1].toLowerCase()).slice(-MAX_CODE_LEN);
+  stageFromSuffix(typed).then(unlockTo);
 });
 // 후원 창의 입력칸 (휴대폰처럼 키보드가 화면에 없을 때)
 $('unlockCode').addEventListener('input', async (e) => {
   const keys = toKeys(e.target.value);
-  if (await matches(keys)) unlock();
-  else $('unlockMsg').textContent = keys.length >= CODE_LEN ? '코드가 맞지 않다.' : '';
+  const got = await stageAnywhere(keys);
+  if (got > stage) unlockTo(got);
+  else $('unlockMsg').textContent = got ? '이미 해금된 단계다.' : keys.length >= 8 ? '코드가 맞지 않다.' : '';
 });
 
 // ───────────── 결과 카드 공유 ─────────────
@@ -231,7 +240,7 @@ function toast(msg) {
 async function openShare() {
   if (!lastMiracle) { toast('아직 정렬되지 않았다. 기적이 일어나면 공유할 수 있다.'); return; }
   const bits = state.n * 8;
-  const data = { bits, miracle: true, years: lastMiracle.years, values: lastMiracle.values };
+  const data = { bits, miracle: true, lg: lastMiracle.lg, values: lastMiracle.values };
   const url = shareUrl(bits);
   card = { data, url, text: shareText(data, url), file: null };
   $('shareNote').textContent = `${tierOf(bits).name} 등급 · 비트 수가 클수록 등급이 올라가고 카드가 더 화려해진다.`;

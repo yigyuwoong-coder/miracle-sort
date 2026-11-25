@@ -23,6 +23,16 @@ import {
 } from './constants.js';
 
 const HIT_LOG = 32;
+const BIG_LG = 290; // 이보다 큰 시각(10^290년 이상)은 실수(double, 최대 약 10^308)로 담지 못하므로 로그로 저장
+
+// log10(10^a + 10^b), log10(10^a − 10^b)  (a ≥ b)
+export const lgAdd = (a, b) => {
+  if (a === -Infinity) return b;
+  if (b === -Infinity) return a;
+  const hi = Math.max(a, b), lo = Math.min(a, b);
+  return hi + Math.log10(1 + 10 ** (lo - hi));
+};
+export const lgSub = (a, b) => (b === -Infinity ? a : a - b > 15 ? a : a + Math.log10(1 - 10 ** (b - a)));
 
 // 무작위 상태에서 처음 정렬될 때까지의 평균 플립 수 × 정렬확률 (바이트 수별 몬테카를로 측정값)
 const MIRACLE_C = { 2: 6.65, 3: 6.06, 4: 5.1, 6: 3.51, 8: 2.86, 10: 1.75 };
@@ -46,6 +56,8 @@ export class World {
     this.nextFlip = null; // 천문 시간 모드: 다음 비트 플립 시각
     this.wasSorted = false;
     this.miracleYear = null;
+    this.miracleLg = null; // 기적 시각의 log10 (아주 큰 시각도 표현)
+    this.bigLg = null; // 로그 시간 모드일 때 현재 시각의 log10 (그때 epoch/local은 "모드 진입 후 경과"만 센다)
     this.mixedSince = -Infinity; // 이 시각 이후로 메모리가 정상분포와 섞이는 중 (처음 상태는 무작위이므로 −∞)
     this.earthHits = 0;
     this.hitX = new Float64Array(HIT_LOG);
@@ -59,6 +71,9 @@ export class World {
   }
 
   get years() { return this.epoch + this.local * YEARS_PER_STEP; }
+
+  // 화면 표시용 현재 시각 (log10 년). 로그 시간 모드에서는 그 사이 흐른 작은 시간은 무시할 만큼 작다
+  get lgYears() { return this.bigLg ?? Math.log10(this.years); }
 
   _placeBodies(keepPrev) {
     const dt = this.local * YEARS_PER_STEP;
@@ -102,7 +117,11 @@ export class World {
     const sorted = m.flip((r() * m.n) | 0, (r() * 8) | 0);
     const miracle = sorted && !this.wasSorted;
     this.wasSorted = sorted;
-    if (miracle) { this.miracleYear = this.years; this.mixedSince = this.years; } // 정렬된 상태는 무작위가 아니다
+    if (miracle) { // 정렬된 상태는 무작위가 아니다
+      this.miracleYear = this.years;
+      this.miracleLg = this.lgYears;
+      this.mixedSince = this.years;
+    }
     return miracle;
   }
 
@@ -172,20 +191,72 @@ export class World {
     const lgWait = this.meanMiracleLog10Years() + Math.log10(-Math.log(1 - this.flipRng()));
     if (lgWait <= Math.log10(dy)) {
       const t = this.years + 10 ** lgWait;
-      const m = this.memory, r = this.flipRng;
-      for (let i = 0; i < m.n; i++) m.a[i] = (r() * 256) | 0; // 무작위 정렬 상태 하나
-      m.a.sort();
-      m.descents = 0;
-      m.flips++;
-      m.lastIdx = -1;
-      this.wasSorted = true;
+      this._sortedMemory();
       this.miracleYear = t;
+      this.miracleLg = this.bigLg ?? Math.log10(t);
       this.mixedSince = t;
-      this.nextFlip = null;
       this._setEpoch(t);
       return true;
     }
     this._skipTo(target); // 기적 없이 끝까지: 끝 상태는 비트별 홀짝으로
+    return false;
+  }
+
+  _sortedMemory() { // 무작위 정렬 상태 하나
+    const m = this.memory, r = this.flipRng;
+    for (let i = 0; i < m.n; i++) m.a[i] = (r() * 256) | 0;
+    m.a.sort();
+    m.descents = 0;
+    m.flips++;
+    m.lastIdx = -1;
+    this.wasSorted = true;
+    this.nextFlip = null;
+  }
+
+  // 비트마다 확률 p로 바꾼다 (건너뛴 구간의 끝 상태)
+  _flipBits(p) {
+    const m = this.memory, r = this.flipRng;
+    for (let i = 0; i < m.n; i++) {
+      let mask = 0;
+      for (let b = 0; b < 8; b++) if (r() < p) mask |= 1 << b;
+      m.a[i] ^= mask;
+    }
+    m.descents = m.countDescents();
+    m.flips++; // 화면 표시용 (바뀌었음을 알림)
+    m.lastIdx = -1;
+    this.wasSorted = m.descents === 0;
+    this.mixedSince = -Infinity; // 이제 정상분포에서 뽑힌 상태
+    this.nextFlip = null; // 무기억성: 다음 플립 시각은 다시 뽑는다
+  }
+
+  // ④ 10^lgTarget년까지 간다 (배속이 10⁵²를 넘어 실수 범위를 벗어나는 경우까지).
+  //   10^290년 아래는 advanceTo(정확 계산 → 증명된 건너뛰기 → 대충 계산)를 그대로 쓰고,
+  //   그 위는 시간을 로그로 저장한 채 대충 계산(지수분포)으로 기적 시각을 뽑는다.
+  advanceLg(lgTarget, ms) {
+    if (this.bigLg === null) {
+      if (lgTarget < BIG_LG) return this.advanceTo(10 ** lgTarget, ms);
+      if (this.advanceTo(10 ** BIG_LG, ms)) return true;
+      this.bigLg = BIG_LG; // 로그 시간 모드로
+      this.epoch = 0; this.local = 0; this.nextFlip = null;
+    }
+    const lgDy = lgSub(lgTarget, this.bigLg);
+    if (!(lgDy > -Infinity)) return false;
+    const lgWait = this.meanMiracleLog10Years() + Math.log10(-Math.log(1 - this.flipRng()));
+    const scramble = () => { const v = this.flipRng() * 1e6; this.planets.setEpoch(v); this.belt.setEpoch(v); this._placeBodies(false); };
+    if (lgWait <= lgDy) {
+      this.bigLg = lgAdd(this.bigLg, lgWait);
+      this._sortedMemory();
+      this.miracleYear = Infinity;
+      this.miracleLg = this.bigLg;
+      this.mixedSince = this.years;
+      scramble();
+      return true;
+    }
+    const lam = this.flipRate / (this.memory.n * 8);
+    const lgX = lgDy + Math.log10(2 * lam); // log10(2λΔ)
+    this._flipBits(lgX > 2 ? 0.5 : -Math.expm1(-(10 ** lgX)) / 2);
+    this.bigLg = lgTarget;
+    scramble(); // 행성 위치는 이 시간 규모에서 의미가 없으므로 아무 위상으로
     return false;
   }
 
@@ -199,21 +270,8 @@ export class World {
   }
 
   _skipTo(target) {
-    const m = this.memory, B = m.n * 8;
-    const lam = this.flipRate / B; // 비트 하나의 플립 빈도 (회/년)
-    const p = -Math.expm1(-2 * lam * (target - this.years)) / 2; // Δ 뒤 그 비트가 바뀌어 있을 확률
-    const r = this.flipRng;
-    for (let i = 0; i < m.n; i++) {
-      let mask = 0;
-      for (let b = 0; b < 8; b++) if (r() < p) mask |= 1 << b;
-      m.a[i] ^= mask;
-    }
-    m.descents = m.countDescents();
-    m.flips++; // 화면 표시용 (바뀌었음을 알림)
-    m.lastIdx = -1;
-    this.wasSorted = m.descents === 0;
-    this.mixedSince = -Infinity; // 이제 정상분포에서 뽑힌 상태
-    this.nextFlip = null; // 무기억성: 다음 플립 시각은 다시 뽑는다
+    const lam = this.flipRate / (this.memory.n * 8); // 비트 하나의 플립 빈도 (회/년)
+    this._flipBits(-Math.expm1(-2 * lam * (target - this.years)) / 2); // Δ 뒤 그 비트가 바뀌어 있을 확률
     this._setEpoch(target);
   }
 

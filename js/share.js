@@ -1,6 +1,6 @@
 // 결과 카드: 비트 수가 클수록 등급이 오르고 더 번쩍번쩍 빛난다.
 // 미리보기에서는 반짝임이 움직이고, 저장·공유할 때는 그 순간의 한 장면을 PNG로 만든다.
-import { fmtYears, compareYears } from './format.js';
+import { fmtYearsLg, compareYearsLg } from './format.js';
 
 export const W = 1080, H = 1350; // 4:5 (인스타그램·카카오톡에 알맞은 세로 비율)
 
@@ -17,19 +17,20 @@ const MAX_STARS = TIERS[TIERS.length - 1].stars;
 export const tierOf = (bits) => TIERS.reduce((t, x) => (bits >= x.min ? x : t), TIERS[0]);
 
 // 공유 문구
-export function captionOf({ bits, miracle, years }) {
-  const y = fmtYears(years);
+// lg = 걸린 시간의 log10 (년). 10^500년처럼 실수로 담을 수 없는 값도 표현한다
+export function captionOf({ miracle, lg }) {
+  const y = fmtYearsLg(lg);
   return miracle
-    ? { head: `${y} 만에 저절로 정렬!`, line: compareYears(years) }
+    ? { head: `${y} 만에 저절로 정렬!`, line: compareYearsLg(lg) }
     : { head: `${y}째 기다리는 중`, line: '태양 입자가 비트를 뒤집어 주길 기다린다' };
 }
 
-export function shareText({ bits, miracle, years }, url) {
-  const c = captionOf({ bits, miracle, years });
+export function shareText({ bits, miracle, lg }, url) {
+  const c = captionOf({ miracle, lg });
   const tier = tierOf(bits);
   return miracle
-    ? `✨ Miracle Sort [${tier.name}] ✨\n${bits}비트 메모리가 ${fmtYears(years)} 만에 저절로 정렬됐다!\n(${c.line})\n${url}`
-    : `⏳ Miracle Sort\n${bits}비트 메모리가 정렬되길 ${fmtYears(years)}째 기다리는 중…\n${url}`;
+    ? `✨ Miracle Sort [${tier.name}] ✨\n${bits}비트 메모리가 ${fmtYearsLg(lg)} 만에 저절로 정렬됐다!\n(${c.line})\n${url}`
+    : `⏳ Miracle Sort\n${bits}비트 메모리가 정렬되길 ${fmtYearsLg(lg)}째 기다리는 중…\n${url}`;
 }
 
 // 비트 수로 정해지는 난수 (같은 비트 수면 같은 별·반짝이 배치)
@@ -77,7 +78,7 @@ function wrap(ctx, text, maxW) {
   return lines;
 }
 
-// data = { bits, miracle, years, values: number[] }, t = 초 (반짝임 애니메이션)
+// data = { bits, miracle, lg, values: number[] }, t = 초 (반짝임 애니메이션)
 export function drawCard(canvas, data, t = 0) {
   canvas.width = W;
   canvas.height = H;

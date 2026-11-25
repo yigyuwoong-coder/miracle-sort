@@ -50,3 +50,22 @@ export function compareYears(y) {
   for (const [t, name] of MILESTONES) if (y >= t) label = name;
   return `${label}보다 길다`;
 }
+
+// ── 아주 큰 시간 (log10 년으로 받는다: 10^500년처럼 실수로 담을 수 없는 값까지) ──
+const sup = (k) => String(k).split('').map((d) => SUP[+d]).join('');
+export function fmtSciLg(lg) {
+  const e = Math.floor(lg);
+  let m = 10 ** (lg - e);
+  if (m >= 9.95) return `1.0 × 10${sup(e + 1)}`;
+  return `${m.toFixed(1)} × 10${sup(e)}`;
+}
+export function fmtYearsLg(lg) {
+  if (lg === -Infinity || Number.isNaN(lg)) return '0일';
+  return lg < 16 ? fmtYears(10 ** lg) : `${fmtSciLg(lg)}년`;
+}
+export function compareYearsLg(lg) {
+  const lgAge = Math.log10(UNIVERSE_AGE);
+  if (lg < lgAge) return compareYears(10 ** lg);
+  const r = lg - lgAge;
+  return `우주 나이의 ${r < 16 ? fmtTimes(10 ** r) : `${fmtSciLg(r)}배`}`;
+}

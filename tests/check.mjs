@@ -177,5 +177,36 @@ console.log('11) 대충 계산 (증명이 안 되는 크기): 기적 시각의 �
   ok(Math.abs(ratio - 1) < 0.1, `256비트: 뽑은 기적 시각 평균 / 보정 평균 = ${ratio.toFixed(3)} (평균 10^${lgMean.toFixed(1)}년)`);
 }
 
+console.log('12) 10^290년을 넘는 시간 (로그 시간 모드)');
+{
+  const W = new World({ n: 256, asteroids: 0, seed: 21 }); // 2048비트, 평균 대기 약 10^469년
+  let mir = false, frames = 0;
+  while (!mir && frames < 600) { mir = W.advanceLg(Math.max(W.lgYears, 0) + Math.log10(1 + 10 ** (500 - Math.log10(60) - Math.max(W.lgYears, 0))), 5); frames++; }
+  const a = Array.from(W.memory.a);
+  ok(mir && W.bigLg > 290 && Number.isFinite(W.miracleLg) && a.every((v, i) => !i || a[i - 1] <= v),
+    `2048비트, 10^500년/초: ${frames}프레임 만에 10^${W.miracleLg.toFixed(1)}년째 기적, 메모리 정렬됨`);
+  const V = new World({ n: 4, asteroids: 0, seed: 22 });
+  V.advanceLg(400, 5);
+  ok(V.lgYears <= 400 && V.lgYears > 0, `작은 메모리는 10^400년 안에서 기적을 찾거나 그 시각에 도달 (지금 10^${V.lgYears.toFixed(1)}년)`);
+}
+
+console.log('13) 해금 코드 단계');
+{
+  // 코드 원문은 공개 저장소에 올리지 않는다. 로컬 파일(tests/codes.local.json, .gitignore에 포함)이 있을 때만 검사한다.
+  const { readFileSync, existsSync } = await import('node:fs');
+  const file = new URL('./codes.local.json', import.meta.url);
+  if (!existsSync(file)) {
+    console.log('  - 건너뜀 (tests/codes.local.json 없음)');
+  } else {
+    const { toKeys, stageFromSuffix, stageAnywhere } = await import('../js/unlock.js');
+    const P = JSON.parse(readFileSync(file, 'utf8'));
+    const got = [];
+    for (const p of P) got.push(await stageFromSuffix(toKeys(p)));
+    const typedAll = await stageAnywhere(toKeys(`아무말 ${P[P.length - 1]} ㅋㅋ`));
+    const none = await stageAnywhere(toKeys('전혀 다른 문장'));
+    ok(got.join(',') === '1,2,3,4' && typedAll === 4 && none === 0, `단계: ${got.join(', ')} · 문장 속 코드 → ${typedAll}단계 · 다른 문장 → ${none}단계`);
+  }
+}
+
 console.log(failed ? `\n실패 ${failed}건` : '\n모두 통과');
 process.exit(failed ? 1 : 0);
