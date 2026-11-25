@@ -5,7 +5,8 @@
 
 - 시뮬레이션: `index.html`
 - 해싱 성능 측정: `bench.html`
-- 배포 주소: `https://<GitHub 아이디>.github.io/<저장소 이름>/` (아래 "GitHub Pages 배포" 참고)
+- **사이트: https://yigyuwoong-coder.github.io/miracle-sort/**
+- 해싱 성능 측정 페이지: https://yigyuwoong-coder.github.io/miracle-sort/bench.html
 
 ```js
 function miracleSort(a) {
