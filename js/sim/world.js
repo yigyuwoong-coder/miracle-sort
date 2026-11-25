@@ -24,6 +24,9 @@ import {
 
 const HIT_LOG = 32;
 
+// 무작위 상태에서 처음 정렬될 때까지의 평균 플립 수 × 정렬확률 (바이트 수별 몬테카를로 측정값)
+const MIRACLE_C = { 2: 6.65, 3: 6.06, 4: 5.1, 6: 3.51, 8: 2.86, 10: 1.75 };
+
 export class World {
   constructor({ n = 6, asteroids = 3000, seed = 1, hashing = true, pFlip = null } = {}) {
     this.seed = seed;
@@ -150,8 +153,39 @@ export class World {
     }
     if (this.nextFlip > target) { this._setEpoch(target); return false; } // 목표까지 전부 정확히 계산함
     this.epoch = t; this.local = 0;
-    if (this.canSkip(target)) this._skipTo(target);
-    else this._setEpoch(t);
+    if (this.canSkip(target)) { this._skipTo(target); return false; } // 정렬될 수 없음이 증명된 건너뛰기
+    return this._approxTo(target); // 대충 계산
+  }
+
+  // 대충 계산: 무작위 상태에서 처음 정렬될 때까지의 시간을 지수분포로 근사한다 (드문 사건 근사).
+  // 평균 플립 수 = c(N) / 정렬확률(N). c는 몬테카를로로 잰 값 (80비트 넘으면 80비트 값으로 대신한다).
+  meanMiracleLog10Years() {
+    const n = this.memory.n;
+    const c = MIRACLE_C[n] ?? MIRACLE_C[10];
+    return Math.log10(c) - log10SortedProbability(n) - Math.log10(this.flipRate);
+  }
+
+  _approxTo(target) {
+    const dy = target - this.years;
+    if (!(dy > 0)) return false;
+    // 기적까지 남은 시간 = 평균 × Exp(1). 아주 큰 수도 넘치지 않게 로그로 비교한다
+    const lgWait = this.meanMiracleLog10Years() + Math.log10(-Math.log(1 - this.flipRng()));
+    if (lgWait <= Math.log10(dy)) {
+      const t = this.years + 10 ** lgWait;
+      const m = this.memory, r = this.flipRng;
+      for (let i = 0; i < m.n; i++) m.a[i] = (r() * 256) | 0; // 무작위 정렬 상태 하나
+      m.a.sort();
+      m.descents = 0;
+      m.flips++;
+      m.lastIdx = -1;
+      this.wasSorted = true;
+      this.miracleYear = t;
+      this.mixedSince = t;
+      this.nextFlip = null;
+      this._setEpoch(t);
+      return true;
+    }
+    this._skipTo(target); // 기적 없이 끝까지: 끝 상태는 비트별 홀짝으로
     return false;
   }
 

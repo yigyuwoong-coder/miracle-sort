@@ -45,15 +45,24 @@ function restart() {
 
 // ───────────── 루프 ─────────────
 let last = performance.now();
+let lastWall = Date.now(); // 실제 시계 (화면이 꺼져 있던 시간을 재는 데 쓴다)
+let achievedYps = 0; // 정밀 계산 "최대"에서 실제로 1초에 흐른 햇수 (따라잡기용)
 function frame(ts) {
   requestAnimationFrame(frame);
   const dt = Math.min(ts - last, 100) / 1000;
   last = ts;
   sky.resize();
 
+  // 화면이 꺼지거나 탭이 가려지면 브라우저가 페이지를 멈춘다. 돌아왔을 때 멈춰 있던 만큼 한 번에 따라잡는다.
+  const wall = Date.now();
+  const gap = (wall - lastWall) / 1000;
+  lastWall = wall;
+  if (gap > 2 && !state.paused) catchUp(gap - dt);
+
   if (!state.paused) {
     let miracle = false;
     const sp = state.speed;
+    const y0 = world.years;
     if (sp.limit) {
       miracle = world.advanceTo(world.years + sp.yps * dt, BUDGET_MS);
     } else if (sp.astro) {
@@ -68,12 +77,30 @@ function frame(ts) {
         if (performance.now() - t0 > BUDGET_MS) { stepAcc = 0; break; } // 못 따라가면 밀린 만큼은 버린다 (계산 자체는 정확)
       }
     }
+    if (!sp.astro && sp.yps === Infinity && dt > 0) achievedYps += ((world.years - y0) / dt - achievedYps) * 0.1;
     if (miracle) onMiracle();
   }
 
   sky.draw(world, state.speed.astro);
   memView.draw(world.memory);
   $('clock').textContent = fmtYears(world.years);
+}
+
+// 멈춰 있던 sec초 동안의 우주 시간을 계산한다. 그동안은 화면을 그릴 필요가 없으므로 입자 대신
+// 비트 플립 사건만 센다 (셀 수 없을 만큼 길면 증명된 건너뛰기 / 대충 계산).
+function catchUp(sec) {
+  const sp = state.speed;
+  const yps = sp.yps === Infinity ? achievedYps : sp.yps;
+  if (!(yps > 0) || !(sec > 0)) return;
+  const y0 = world.years;
+  const miracle = world.advanceTo(y0 + yps * sec, 300);
+  if (!sp.astro) world.enterPrecise();
+  lastWall = Date.now(); // 따라잡는 데 쓴 시간은 빼고
+  const mins = sec >= 120 ? `${Math.round(sec / 60)}분` : `${Math.round(sec)}초`;
+  toast(miracle
+    ? `화면이 꺼져 있던 ${mins} 사이에 기적이 일어났다!`
+    : `화면이 꺼져 있던 ${mins} 동안 ${fmtYears(world.years - y0)}이 흘렀다`);
+  if (miracle) onMiracle();
 }
 
 function onMiracle() {

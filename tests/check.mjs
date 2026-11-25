@@ -156,5 +156,26 @@ console.log('10) 초고속 건너뛰기는 정렬될 확률이 10⁻¹⁷ 미만
   ok(!after.canSkip(after.years + 1e52), '512비트라도 기적 직후 충분히 섞이기 전에는 건너뛰지 않는다');
 }
 
+console.log('11) 대충 계산 (증명이 안 되는 크기): 기적 시각의 평균이 보정값과 맞는가');
+{
+  // 128비트: 1항하사 년/초면 첫 프레임에 기적이 나야 하고, 그때 메모리는 정렬돼 있어야 한다
+  const W = new World({ n: 16, asteroids: 0, seed: 4 });
+  const mir = W.advanceTo(W.years + 1e52 / 60, 5);
+  const a = Array.from(W.memory.a);
+  ok(mir && a.every((v, i) => !i || a[i - 1] <= v) && W.miracleYear === W.years,
+    `128비트: 첫 프레임에 ${W.miracleYear.toExponential(2)}년째 기적, 메모리 정렬됨`);
+  // 지수분포 근사의 평균이 보정값(평균 = c/정렬확률 플립)과 맞는지: 여러 번 뽑아 평균
+  let sum = 0;
+  const T = 4000;
+  for (let k = 0; k < T; k++) {
+    const V = new World({ n: 32, asteroids: 0, seed: 50 + k });
+    V._approxTo(1e300);
+    sum += V.miracleYear;
+  }
+  const lgMean = new World({ n: 32, asteroids: 0, seed: 1 }).meanMiracleLog10Years();
+  const ratio = sum / T / 10 ** lgMean;
+  ok(Math.abs(ratio - 1) < 0.1, `256비트: 뽑은 기적 시각 평균 / 보정 평균 = ${ratio.toFixed(3)} (평균 10^${lgMean.toFixed(1)}년)`);
+}
+
 console.log(failed ? `\n실패 ${failed}건` : '\n모두 통과');
 process.exit(failed ? 1 : 0);
