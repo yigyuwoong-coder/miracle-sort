@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Miracle Sort</title>
+  <meta name="description" content="태양 입자가 메모리의 비트를 뒤집어 배열이 저절로 정렬되기를 기다리는 미라클 소트 시뮬레이션">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='11' cy='16' r='7' fill='%23ffd76a'/><circle cx='26' cy='16' r='3.5' fill='%235aa9ff'/></svg>">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1 class="title">Miracle Sort</h1>
+      <p class="tagline">태양 입자가 내 메모리의 비트를 뒤집어, 배열이 저절로 정렬될 때까지 기다린다</p>
+    </div>
+    <a class="navlink" href="bench.html">해싱 성능 측정 →</a>
+  </header>
+
+  <main class="stage">
+    <section class="sky-wrap">
+      <canvas id="sky" aria-label="태양계"></canvas>
+
+      <div class="clock" aria-live="polite">
+        <div class="clock-label">지금</div>
+        <div class="clock-value" id="clock">0일</div>
+      </div>
+
+      <aside class="hash-card">
+        <div class="hc-title">충돌 판정 1스텝 · 실측</div>
+        <div class="hc-row"><span>해싱 사용</span><b id="tHash">–</b></div>
+        <div class="hc-row"><span>해싱 없이</span><b id="tBrute">–</b></div>
+        <div class="hc-x" id="tX">측정 중…</div>
+        <label class="hc-switch"><input type="checkbox" id="useHash" checked> 시뮬레이션에 해싱 사용</label>
+      </aside>
+
+      <div class="miracle" id="miracle" hidden>
+        <div class="miracle-title">기적!</div>
+        <div class="miracle-sub" id="miracleSub"></div>
+        <div class="miracle-btns">
+          <button type="button" id="mContinue">계속 기다리기</button>
+          <button type="button" id="mRestart" class="ghost">처음부터</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="speed-strip">
+      <div class="speedbar" role="toolbar" aria-label="배속">
+        <button type="button" class="play" id="play" aria-label="일시정지">❚❚</button>
+        <div class="speed-group">
+          <span class="group-label">정밀 계산</span>
+          <div class="group-btns" id="preciseBtns"></div>
+        </div>
+        <div class="speed-group">
+          <span class="group-label">천문 시간</span>
+          <div class="group-btns" id="astroBtns"></div>
+        </div>
+      </div>
+    </div>
+
+    <section class="memory">
+      <div class="mem-head">
+        <span class="mem-title">내 메모리</span>
+        <div class="chips" id="nChips"></div>
+        <button type="button" class="ghost small" id="restart">처음부터</button>
+      </div>
+      <canvas id="mem" aria-label="메모리 배열"></canvas>
+    </section>
+  </main>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

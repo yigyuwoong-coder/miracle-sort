@@ -1,0 +1,117 @@
+:root {
+  --bg: #05060b;
+  --panel: #0c0f18;
+  --line: #1e2436;
+  --text: #dbe3f4;
+  --dim: #8590a8;
+  --accent: #8ab4ff;
+  --gold: #ffd76a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+button { font: inherit; color: inherit; }
+
+/* ── 제목 ── */
+.topbar {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 18px 24px 14px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.title {
+  margin: 0; font-size: clamp(36px, 6vw, 60px); line-height: 1; font-weight: 800; letter-spacing: -0.02em;
+  background: linear-gradient(90deg, #ffe7a3, #ffb057 55%, #8ab4ff);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.tagline { margin: 8px 0 0; color: var(--dim); font-size: 14px; }
+.navlink { color: var(--dim); text-decoration: none; padding: 6px 10px; border-radius: 8px; }
+.navlink:hover { color: var(--text); background: #161b2b; }
+
+/* ── 화면 ── */
+.stage { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.sky-wrap { position: relative; flex: 1; min-height: 420px; }
+#sky { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+#sky.dragging { cursor: grabbing; }
+
+/* 지금 몇 년 */
+.clock { position: absolute; top: 16px; left: 20px; pointer-events: none; text-shadow: 0 2px 12px rgba(0,0,0,.8); }
+.clock-label { font-size: 13px; color: var(--dim); }
+.clock-value { font-size: clamp(28px, 4.5vw, 48px); font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+/* 해싱 실측 */
+.hash-card {
+  position: absolute; top: 16px; right: 16px; width: 230px; padding: 12px 14px; border-radius: 12px;
+  background: rgba(10, 13, 22, .82); border: 1px solid var(--line); backdrop-filter: blur(6px);
+  font-variant-numeric: tabular-nums;
+}
+.hc-title { font-size: 12px; color: var(--dim); margin-bottom: 6px; }
+.hc-row { display: flex; justify-content: space-between; font-size: 14px; padding: 2px 0; }
+.hc-row b { font-weight: 650; }
+.hc-x { margin: 6px 0 8px; font-size: 22px; font-weight: 800; color: #7be0a8; }
+.hc-switch { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); cursor: pointer; }
+.hc-switch input { accent-color: var(--accent); }
+
+/* 배속 */
+.speed-strip { border-top: 1px solid var(--line); background: #0a0d16; padding: 12px 16px; }
+.speedbar { display: flex; align-items: stretch; justify-content: center; gap: 14px; flex-wrap: wrap; }
+.play {
+  width: 64px; min-height: 64px; border-radius: 14px; border: 0; background: var(--gold); color: #241b00;
+  font-size: 20px; font-weight: 800; cursor: pointer;
+}
+.speed-group { display: flex; flex-direction: column; gap: 4px; }
+.group-label { font-size: 12px; color: var(--dim); padding-left: 2px; }
+.group-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.group-btns button {
+  background: #182035; border: 1px solid #2a3557; border-radius: 12px; padding: 10px 16px;
+  font-size: 17px; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.group-btns button:hover { background: #22305a; }
+.group-btns button.on { background: #3b62b0; border-color: #8ab4ff; color: #fff; box-shadow: 0 0 0 2px rgba(138,180,255,.25); }
+
+/* 기적 */
+.miracle {
+  position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%);
+  text-align: center; padding: 24px 32px; border-radius: 16px; max-width: calc(100% - 32px);
+  background: rgba(20, 16, 4, .9); border: 1px solid rgba(255, 215, 106, .55);
+  box-shadow: 0 0 80px rgba(255, 215, 106, .25); animation: pop .5s cubic-bezier(.2, 1.4, .4, 1);
+}
+.miracle[hidden] { display: none; }
+.miracle-title { font-size: 40px; font-weight: 850; color: var(--gold); }
+.miracle-sub { margin: 6px 0 16px; color: #f3e6bf; font-size: 16px; }
+.miracle-btns { display: flex; gap: 8px; justify-content: center; }
+.miracle-btns button { background: var(--gold); color: #241b00; border: 0; border-radius: 10px; padding: 8px 16px; font-weight: 700; cursor: pointer; }
+@keyframes pop { from { transform: translate(-50%, -50%) scale(.6); opacity: 0; } }
+
+button.ghost { background: transparent !important; color: var(--text) !important; border: 1px solid #2a3557 !important; border-radius: 10px; cursor: pointer; }
+button.small { padding: 4px 10px; font-size: 13px; }
+
+/* 메모리 */
+.memory { border-top: 1px solid var(--line); background: #080a12; padding: 10px 16px 12px; }
+.mem-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.mem-title { font-weight: 650; }
+.chips { display: flex; gap: 4px; }
+.chips button { background: #182035; border: 1px solid #263150; border-radius: 8px; padding: 3px 10px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.chips button.on { border-color: var(--accent); color: var(--accent); }
+#restart { margin-left: auto; }
+#mem { width: 100%; height: 150px; display: block; }
+
+@media (max-width: 760px) {
+  .topbar { padding: 14px 16px 10px; }
+  .hash-card { width: 180px; padding: 8px 10px; top: 10px; right: 10px; }
+  .hc-row { font-size: 12px; }
+  .hc-x { font-size: 17px; margin: 2px 0 4px; }
+  .clock { left: 16px; top: 10px; }
+  .sky-wrap { min-height: 380px; }
+  .speed-strip { padding: 10px 16px; }
+  .speedbar { gap: 8px; }
+  .group-btns button { padding: 8px 10px; font-size: 14px; }
+  .play { width: 52px; min-height: 52px; }
+}

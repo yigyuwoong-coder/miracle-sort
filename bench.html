@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Miracle Sort Hashing</title>
+  <meta name="description" content="공간 해싱으로 충돌 판정이 얼마나 빨라지는지 실측">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/bench.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='11' cy='16' r='7' fill='%23ffd76a'/><circle cx='26' cy='16' r='3.5' fill='%235aa9ff'/></svg>">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1 class="title">Miracle Sort</h1>
+      <p class="tagline">해싱 성능 측정</p>
+    </div>
+    <a class="navlink" href="index.html">← 시뮬레이션</a>
+  </header>
+
+  <main class="bench-main">
+    <section class="card">
+      <h2>무엇을 재나</h2>
+      <p>태양 입자가 매 스텝 소행성 M개 중 하나에 부딪혔는지 확인해야 한다. 입자마다 소행성을 전부 확인하면 <b>O(P·M)</b>이다.
+        <b>공간 해싱</b>은 공간을 칸으로 나누고, 칸 좌표 (x, y)를 해시 함수 <code>(x·73856093 XOR y·19349663) mod 테이블크기</code>로
+        버킷에 대응시켜 소행성을 해시 테이블(체이닝)에 넣어 둔다. 입자는 자기 칸과 주변 8칸의 버킷만 확인하므로 평균 <b>O(P+M)</b>이다.</p>
+      <p class="dim small">같은 입력(시드 42)으로 두 방식을 재서 중앙값을 쓴다. 두 방식의 충돌 결과가 같은지도 매번 확인한다. 계산은 Web Worker에서 하므로 측정 중에도 화면이 멈추지 않는다. 터미널에서는 <code>node bench/run.mjs</code>.</p>
+      <div class="btns">
+        <button id="runBtn" type="button" class="primary">측정 시작</button>
+        <button id="mdBtn" type="button" disabled>표 복사 (Markdown)</button>
+      </div>
+      <div class="progress" hidden id="progressWrap"><div id="progressBar"></div></div>
+      <p class="small dim" id="status">약 20초 걸린다.</p>
+    </section>
+
+    <section class="card" id="throughputCard" hidden>
+      <h2>시뮬레이션이 1초 동안 계산하는 우주 시간</h2>
+      <p class="dim small">실제 시뮬레이션(소행성 3,000개, 입자 약 4,000개)을 정밀 계산으로 돌렸을 때</p>
+      <div class="tp" id="throughput"></div>
+    </section>
+
+    <section class="card" id="collisionCard" hidden>
+      <h2>충돌 판정 1스텝 — 규모를 키우며</h2>
+      <p class="dim small">소행성 M개, 입자 P = 10·M개. 해싱은 해시 테이블을 짓는 시간까지 포함. 로그 눈금에서 전수 검사는 기울기 2(크기 2배 → 4배 느림), 해싱은 기울기 1에 가깝다.
+        소행성대의 넓이는 그대로라 M이 커지면 칸 하나에 든 소행성도 늘어나서, 해싱도 완전한 직선보다는 조금 더 가파르다.</p>
+      <div class="legend" id="legend"></div>
+      <div class="chart" id="chart"></div>
+      <div class="table-wrap" id="table"></div>
+    </section>
+  </main>
+
+  <div class="tooltip" id="tooltip" hidden></div>
+  <script type="module" src="js/bench/bench-page.js"></script>
+</body>
+</html>
