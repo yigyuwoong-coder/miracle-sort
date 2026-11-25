@@ -10,7 +10,10 @@ export const TIERS = [
   { min: 64, name: '영웅', stars: 3, color: '#b56cff', accent: '#ecc9ff', sparkles: 130, rays: 12, glow: 50 },
   { min: 80, name: '전설', stars: 4, color: '#ffbf2e', accent: '#fff3b0', sparkles: 220, rays: 18, glow: 70 },
   { min: 128, name: '신화', stars: 5, color: '#ff5ec8', accent: '#ffffff', sparkles: 340, rays: 28, glow: 90, holo: true },
+  { min: 256, name: '초월', stars: 6, color: '#4ff0ff', accent: '#ffffff', sparkles: 480, rays: 36, glow: 110, holo: true, swirl: 3 },
+  { min: 1024, name: '우주', stars: 7, color: '#ffffff', accent: '#ffffff', sparkles: 640, rays: 48, glow: 140, holo: true, swirl: 5, pulse: true },
 ];
+const MAX_STARS = TIERS[TIERS.length - 1].stars;
 export const tierOf = (bits) => TIERS.reduce((t, x) => (bits >= x.min ? x : t), TIERS[0]);
 
 // 공유 문구
@@ -97,6 +100,22 @@ export function drawCard(canvas, data, t = 0) {
 
   const cx = W / 2, cy = 470;
 
+  // 은하 소용돌이 (초월 등급부터): 나선 팔을 따라 별이 돈다
+  if (tier.swirl) {
+    const arms = tier.swirl, perArm = 160;
+    for (let a = 0; a < arms; a++) {
+      for (let k = 0; k < perArm; k++) {
+        const r = 30 + k * 3.4;
+        const ang = t * 0.35 + (a * Math.PI * 2) / arms + r * 0.011 + (rnd() - 0.5) * 0.35;
+        const x = cx + Math.cos(ang) * r, y = cy + Math.sin(ang) * r * 0.82;
+        ctx.globalAlpha = 0.25 + 0.6 * (1 - k / perArm);
+        ctx.fillStyle = hue(a * 70 + k * 2);
+        ctx.fillRect(x, y, 3 + (k % 7 === 0 ? 3 : 0), 3 + (k % 7 === 0 ? 3 : 0));
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // 빛줄기 (영웅 등급부터)
   if (tier.rays) {
     ctx.save();
@@ -127,7 +146,7 @@ export function drawCard(canvas, data, t = 0) {
 
   // 반짝이
   for (let i = 0; i < tier.sparkles; i++) {
-    const x = rnd() * W, y = rnd() * H, r = 6 + rnd() * (10 + ti * 7), ph = rnd() * 6.28, sp = 1.5 + rnd() * 3;
+    const x = rnd() * W, y = rnd() * H, r = 6 + rnd() * (10 + Math.min(ti, 4) * 7), ph = rnd() * 6.28, sp = 1.5 + rnd() * 3;
     const a = Math.max(0, Math.sin(t * sp + ph));
     if (a < 0.05) continue;
     ctx.globalAlpha = a;
@@ -162,7 +181,7 @@ export function drawCard(canvas, data, t = 0) {
   ctx.fillText('Miracle Sort', cx, 140);
 
   // 등급 배지
-  const badge = `${'★'.repeat(tier.stars)}${'☆'.repeat(5 - tier.stars)}  ${tier.name} 등급`;
+  const badge = `${'★'.repeat(tier.stars)}${'☆'.repeat(MAX_STARS - tier.stars)}  ${tier.name} 등급`;
   ctx.font = `800 34px ${FONT}`;
   const bwid = ctx.measureText(badge).width + 60;
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
@@ -176,7 +195,14 @@ export function drawCard(canvas, data, t = 0) {
 
   // 비트 수 (가장 크게)
   ctx.save();
-  ctx.font = `900 300px ${FONT}`;
+  const digits = String(data.bits).length;
+  ctx.font = `900 ${digits >= 4 ? 250 : 300}px ${FONT}`;
+  if (tier.pulse) { // 우주 등급: 숫자가 두근거린다
+    const sc = 1 + 0.04 * Math.sin(t * 3.2);
+    ctx.translate(cx, cy + 10);
+    ctx.scale(sc, sc);
+    ctx.translate(-cx, -(cy + 10));
+  }
   ctx.shadowColor = tier.color;
   ctx.shadowBlur = tier.glow + 20 * Math.abs(Math.sin(t * 2));
   let numFill = '#ffffff';

@@ -19,7 +19,7 @@ const SPEEDS = [
   { label: '1경 년/초', astro: true, locked: true },
   { label: '1해 년/초', astro: true, locked: true },
 ];
-const BYTES = [2, 3, 4, 6, 8, 10, 12, 16]; // 16 ~ 128비트
+const BYTES = [2, 3, 4, 6, 8, 10, 12, 16, 24, 32, 64, 128, 256]; // 16 ~ 2048비트
 const BUDGET_MS = 28; // 한 화면 프레임에서 정밀 계산에 쓸 최대 시간
 
 const $ = (id) => document.getElementById(id);
@@ -86,6 +86,9 @@ function syncUI() {
   for (const b of document.querySelectorAll('.group-btns button')) b.classList.toggle('on', SPEEDS[+b.dataset.i] === state.speed);
   for (const b of $('nChips').children) b.classList.toggle('on', +b.dataset.n === state.n);
   $('useHash').checked = state.hashing;
+  // 정렬에 성공(기적)하기 전에는 공유할 수 없다
+  $('shareBtn').classList.toggle('locked', !lastMiracle);
+  $('shareBtn').title = lastMiracle ? '결과 카드 공유' : '정렬에 성공하면 공유할 수 있다';
 }
 
 SPEEDS.forEach((sp, i) => {
@@ -148,11 +151,19 @@ let previewRaf = 0;
 
 const shareUrl = (bits) => `${location.origin}${location.pathname}?bits=${bits}`;
 
+let toastTimer = 0;
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+}
+
 async function openShare() {
+  if (!lastMiracle) { toast('아직 정렬되지 않았다. 기적이 일어나면 공유할 수 있다.'); return; }
   const bits = state.n * 8;
-  const data = lastMiracle
-    ? { bits, miracle: true, years: lastMiracle.years, values: lastMiracle.values }
-    : { bits, miracle: false, years: world.years, values: Array.from(world.memory.a) };
+  const data = { bits, miracle: true, years: lastMiracle.years, values: lastMiracle.values };
   const url = shareUrl(bits);
   card = { data, url, text: shareText(data, url), file: null };
   $('shareNote').textContent = `${tierOf(bits).name} 등급 · 비트 수가 클수록 등급이 올라가고 카드가 더 화려해진다.`;

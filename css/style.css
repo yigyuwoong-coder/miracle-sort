@@ -39,6 +39,14 @@ button { font: inherit; color: inherit; }
   padding: 8px 16px; font-weight: 800; cursor: pointer; box-shadow: 0 0 18px rgba(255,190,90,.35);
 }
 .share-btn:hover { filter: brightness(1.08); }
+.share-btn.locked { background: #1a2033; color: var(--dim); box-shadow: none; border: 1px dashed #2f3a5c; }
+.share-btn.locked::before { content: "🔒 "; }
+.toast {
+  position: fixed; left: 50%; top: 92px; transform: translateX(-50%); z-index: 20;
+  background: #1a2033; border: 1px solid #2f3a5c; color: var(--text); padding: 10px 16px; border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5); font-size: 14px; max-width: calc(100vw - 32px); text-align: center;
+}
+.toast[hidden] { display: none; }
 .navlink:hover { color: var(--text); background: #161b2b; }
 
 /* ── 화면 ── */

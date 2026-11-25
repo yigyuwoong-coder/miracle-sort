@@ -174,6 +174,7 @@ export class MemoryRenderer {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#080a12';
     ctx.fillRect(0, 0, cw, ch);
+    if (n > 16) return this._bars(ctx, mem, cw, ch, flash, sorted);
     const colW = cw / n;
     const bitW = Math.max(4, Math.min(12, (colW - 12) / 8));
     const top = 20, bot = ch - 36;
@@ -204,6 +205,21 @@ export class MemoryRenderer {
         ctx.font = '700 13px ui-monospace, Menlo, monospace';
         ctx.fillText('>', (i + 1) * colW, top + 2);
       }
+    }
+  }
+
+  // 큰 메모리(17바이트 이상): 칸마다 8비트를 그리기엔 좁으므로 값 막대만. 방금 바뀐 원소는 금색.
+  _bars(ctx, mem, cw, ch, flash, sorted) {
+    const { a, n } = mem;
+    const colW = cw / n, gap = colW >= 4 ? 1 : 0;
+    const top = 8, bot = ch - 6;
+    for (let i = 0; i < n; i++) {
+      const v = a[i];
+      const h = Math.max(2, ((bot - top) * v) / 255);
+      const bad = (i > 0 && a[i - 1] > v) || (i + 1 < n && v > a[i + 1]);
+      ctx.fillStyle = sorted ? '#7be0a8' : bad ? '#e8736f' : '#5aa9ff';
+      if (flash > 0 && i === mem.lastIdx) ctx.fillStyle = `rgba(255,215,106,${0.5 + flash * 0.5})`;
+      ctx.fillRect(i * colW + gap / 2, bot - h, Math.max(1, colW - gap), h);
     }
   }
 }
