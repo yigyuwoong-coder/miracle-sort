@@ -4,10 +4,11 @@ import { STEPS_PER_YEAR } from './sim/constants.js';
 import { SkyRenderer, MemoryRenderer } from './render.js';
 import { fmtYears } from './format.js';
 import { drawCard, cardBlob, shareText, tierOf } from './share.js';
+import { toKeys, matches, CODE_LEN } from './unlock.js';
 
 // 정밀 계산: 입자 하나하나를 2.8시간 스텝마다 계산 (빠른 배속이면 여러 스텝을 계산하고 화면은 한 번만 그림)
 // 천문 시간: 비트가 뒤집히는 순간만 정확히 계산하고 그 사이는 건너뜀
-// locked: 후원으로 해금 (누르면 개발자 후원 창)
+// limit: 한계 속도 — 비트 플립을 하나도 빼먹지 않고 계산이 허락하는 만큼 최대로 (잠김: 후원 창 / 해금 코드)
 const SPEEDS = [
   { label: '1주/초', yps: 7 / 365.25, astro: false },
   { label: '1달/초', yps: 1 / 12, astro: false },
@@ -16,8 +17,7 @@ const SPEEDS = [
   { label: '100만 년/초', yps: 1e6, astro: true },
   { label: '10억 년/초', yps: 1e9, astro: true },
   { label: '1조 년/초', yps: 1e12, astro: true },
-  { label: '1경 년/초', astro: true, locked: true },
-  { label: '1해 년/초', astro: true, locked: true },
+  { label: '한계 속도', astro: true, limit: true },
 ];
 const BYTES = [2, 3, 4, 6, 8, 10, 12, 16, 24, 32, 64, 128, 256]; // 16 ~ 2048비트
 const BUDGET_MS = 28; // 한 화면 프레임에서 정밀 계산에 쓸 최대 시간
@@ -25,6 +25,8 @@ const BUDGET_MS = 28; // 한 화면 프레임에서 정밀 계산에 쓸 최대 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const startBytes = BYTES.includes(+q.get('bits') / 8) ? +q.get('bits') / 8 : 6; // 공유 링크 ?bits=64
+let unlocked = false;
+try { unlocked = localStorage.getItem('miracle-sort-unlocked') === '1'; } catch { /* 저장소를 못 쓰면 매번 잠김 */ }
 const state = { n: startBytes, speed: SPEEDS[0], paused: false, hashing: true };
 const sky = new SkyRenderer($('sky'));
 const memView = new MemoryRenderer($('mem'));
@@ -51,7 +53,9 @@ function frame(ts) {
   if (!state.paused) {
     let miracle = false;
     const sp = state.speed;
-    if (sp.astro) {
+    if (sp.limit) {
+      miracle = world.advanceBudget(BUDGET_MS);
+    } else if (sp.astro) {
       miracle = world.advance(sp.yps * dt);
     } else {
       let steps;
@@ -94,11 +98,9 @@ function syncUI() {
 SPEEDS.forEach((sp, i) => {
   const b = document.createElement('button');
   b.type = 'button';
-  b.textContent = sp.locked ? `${sp.label} 🔒` : sp.label;
   b.dataset.i = i;
-  if (sp.locked) b.classList.add('locked');
   b.addEventListener('click', () => {
-    if (sp.locked) { openDonate(sp.label); return; }
+    if (sp.limit && !unlocked) { openDonate(sp.label); return; }
     if (state.speed.astro && !sp.astro) world.enterPrecise();
     state.speed = sp;
     stepAcc = 0;
@@ -108,6 +110,15 @@ SPEEDS.forEach((sp, i) => {
   });
   (sp.astro ? $('astroBtns') : $('preciseBtns')).appendChild(b);
 });
+function labelSpeeds() {
+  for (const b of document.querySelectorAll('.group-btns button')) {
+    const sp = SPEEDS[+b.dataset.i];
+    b.textContent = sp.limit ? `${sp.label} ${unlocked ? '⚡' : '🔒'}` : sp.label;
+    b.classList.toggle('locked', !!sp.limit && !unlocked);
+    b.classList.toggle('limit', !!sp.limit && unlocked);
+  }
+}
+labelSpeeds();
 for (const n of BYTES) {
   const b = document.createElement('button');
   b.type = 'button';
@@ -139,9 +150,38 @@ skyEl.addEventListener('dblclick', () => sky.resetView());
 
 // ───────────── 개발자 후원 ─────────────
 function openDonate(label) {
-  $('donateSub').textContent = label ? `"${label}" 배속은 후원으로 해금된다.` : '더 빠른 배속(1경 년/초, 1해 년/초)은 후원으로 해금된다.';
+  $('donateSub').textContent = unlocked
+    ? '한계 속도가 이미 해금돼 있다. 응원해 주실 분은 아래로!'
+    : `"${label ?? '한계 속도'}"는 후원으로 해금된다.`;
+  $('unlockCode').value = '';
+  $('unlockMsg').textContent = '';
   $('donateDialog').showModal();
 }
+
+// ───────────── 해금 코드 ─────────────
+function unlock() {
+  if (unlocked) return;
+  unlocked = true;
+  try { localStorage.setItem('miracle-sort-unlocked', '1'); } catch { /* 이번 방문 동안만 해금 */ }
+  labelSpeeds();
+  if ($('donateDialog').open) $('donateDialog').close();
+  toast('⚡ 해금! "한계 속도"를 쓸 수 있다');
+}
+// 화면 아무 데서나 입력: 한/영 상태와 상관없이 물리 키(KeyD → d)로 모은다
+let typed = '';
+document.addEventListener('keydown', (e) => {
+  if (unlocked || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, textarea')) return;
+  const m = /^Key([A-Z])$/.exec(e.code);
+  if (!m) return;
+  typed = (typed + m[1].toLowerCase()).slice(-CODE_LEN);
+  if (typed.length === CODE_LEN) matches(typed).then((ok) => ok && unlock());
+});
+// 후원 창의 입력칸 (휴대폰처럼 키보드가 화면에 없을 때)
+$('unlockCode').addEventListener('input', async (e) => {
+  const keys = toKeys(e.target.value);
+  if (await matches(keys)) unlock();
+  else $('unlockMsg').textContent = keys.length >= CODE_LEN ? '코드가 맞지 않다.' : '';
+});
 
 // ───────────── 결과 카드 공유 ─────────────
 const preview = $('cardPreview');

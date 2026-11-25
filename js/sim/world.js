@@ -122,6 +122,25 @@ export class World {
     return miracle;
   }
 
+  // 한계 속도: 정해진 시간(ms) 동안 비트 플립을 하나도 빼먹지 않고 계산할 수 있는 만큼 진행한다.
+  // 얼마나 멀리 가는지는 계산 속도에 달려 있다 (작은 메모리일수록 플립이 드물어 더 멀리 간다).
+  advanceBudget(ms) {
+    const rate = this.flipRate;
+    const exp = () => -Math.log(1 - this.flipRng()) / rate;
+    if (this.nextFlip === null) this.nextFlip = this.years + exp();
+    const t0 = performance.now();
+    let t = this.years, miracle = false;
+    for (let c = 1; ; c++) {
+      t = this.nextFlip;
+      this.epoch = t; this.local = 0;
+      this.nextFlip = t + exp();
+      if (this._flip()) { miracle = true; break; }
+      if ((c & 4095) === 0 && performance.now() - t0 > ms) break;
+    }
+    this._setEpoch(t);
+    return miracle;
+  }
+
   // 정밀 계산으로 돌아갈 때: 다음 플립 시각은 버린다 (무기억성 덕분에 나중에 다시 뽑아도 정확하다)
   enterPrecise() { this.nextFlip = null; }
 
