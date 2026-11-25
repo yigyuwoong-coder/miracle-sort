@@ -16,7 +16,7 @@ import { mulberry32 } from './rng.js';
 import { makePlanets, makeBelt } from './orbits.js';
 import { Particles } from './particles.js';
 import { SpatialHash, sweptHit, bruteHit } from './spatial-hash.js';
-import { Memory } from './memory.js';
+import { Memory, log10SortedProbability } from './memory.js';
 import {
   DT, YEARS_PER_STEP, WORLD_R, BELT_IN, BELT_OUT, AST_R_MIN, AST_R_MAX, WIND_VMIN,
   EMIT_PER_STEP, HASH_CELL, flipsPerYear, flipProbabilityPerHit,
@@ -43,6 +43,7 @@ export class World {
     this.nextFlip = null; // 천문 시간 모드: 다음 비트 플립 시각
     this.wasSorted = false;
     this.miracleYear = null;
+    this.mixedSince = -Infinity; // 이 시각 이후로 메모리가 정상분포와 섞이는 중 (처음 상태는 무작위이므로 −∞)
     this.earthHits = 0;
     this.hitX = new Float64Array(HIT_LOG);
     this.hitY = new Float64Array(HIT_LOG);
@@ -98,7 +99,7 @@ export class World {
     const sorted = m.flip((r() * m.n) | 0, (r() * 8) | 0);
     const miracle = sorted && !this.wasSorted;
     this.wasSorted = sorted;
-    if (miracle) this.miracleYear = this.years;
+    if (miracle) { this.miracleYear = this.years; this.mixedSince = this.years; } // 정렬된 상태는 무작위가 아니다
     return miracle;
   }
 
@@ -122,23 +123,64 @@ export class World {
     return miracle;
   }
 
-  // 한계 속도: 정해진 시간(ms) 동안 비트 플립을 하나도 빼먹지 않고 계산할 수 있는 만큼 진행한다.
-  // 얼마나 멀리 가는지는 계산 속도에 달려 있다 (작은 메모리일수록 플립이 드물어 더 멀리 간다).
-  advanceBudget(ms) {
+  // ③ 초고속 (예: 1항하사 = 10⁵²년/초): target 시각까지 간다.
+  //
+  //  1) 먼저 시간 예산(ms) 안에서 비트 플립을 하나도 빼먹지 않고 계산한다. 기적이 나면 그 순간에 멈춘다.
+  //  2) 예산이 끝났는데 target까지 남았다면, 남은 구간을 "정렬될 수 없음이 증명될 때만" 건너뛴다.
+  //     - 남은 구간에서 한 번이라도 정렬될 확률 ≤ (남은 구간 기대 플립 수) × (정렬 확률)  … 정상분포에서의 합집합 한계
+  //       이 값이 10⁻¹⁷(배정밀도 실수의 오차)보다 작을 때만 건너뛴다.
+  //     - 지금 상태가 정상분포(무작위)와 충분히 섞여 있어야 위 한계가 성립한다. 기적 직후처럼 정렬된 상태에서
+  //       출발했다면, 비트마다 섞일 만큼(분포 차이 ≤ 10⁻¹⁷) 시간이 지난 뒤에만 건너뛴다.
+  //     - 건너뛴 구간의 끝 상태는 정확히 구한다: 비트마다 뒤집힘은 독립인 포아송 과정이므로,
+  //       Δ년 뒤 각 비트가 바뀌어 있을 확률은 (1 − e^(−2λΔ)) / 2 (λ = 비트 하나의 플립 빈도). O(비트 수).
+  //  3) 증명이 안 되면(96~256비트처럼 기적이 확실히 오지만 시각을 구하려면 플립을 너무 많이 세야 할 때)
+  //     건너뛰지 않고, 계산한 만큼만 진행한다 (정확성 우선).
+  advanceTo(target, ms) {
     const rate = this.flipRate;
     const exp = () => -Math.log(1 - this.flipRng()) / rate;
     if (this.nextFlip === null) this.nextFlip = this.years + exp();
     const t0 = performance.now();
-    let t = this.years, miracle = false;
-    for (let c = 1; ; c++) {
+    let t = this.years;
+    for (let c = 1; this.nextFlip <= target; c++) {
       t = this.nextFlip;
       this.epoch = t; this.local = 0;
       this.nextFlip = t + exp();
-      if (this._flip()) { miracle = true; break; }
+      if (this._flip()) { this._setEpoch(t); return true; }
       if ((c & 4095) === 0 && performance.now() - t0 > ms) break;
     }
-    this._setEpoch(t);
-    return miracle;
+    if (this.nextFlip > target) { this._setEpoch(target); return false; } // 목표까지 전부 정확히 계산함
+    this.epoch = t; this.local = 0;
+    if (this.canSkip(target)) this._skipTo(target);
+    else this._setEpoch(t);
+    return false;
+  }
+
+  // 남은 구간을 건너뛰어도 되는가 (정렬될 확률 상한 < 10⁻¹⁷, 그리고 충분히 섞임)
+  canSkip(target) {
+    const B = this.memory.n * 8;
+    const mixFlips = (B / 2) * (Math.log(B / 2) + 40); // (B/2)·e^(−2m/B) ≤ 10⁻¹⁷ 이 되는 기대 플립 수 m
+    if ((this.years - this.mixedSince) * this.flipRate < mixFlips) return false;
+    const lgFlips = Math.log10(Math.max(1, (target - this.years) * this.flipRate));
+    return lgFlips + log10SortedProbability(this.memory.n) < -17;
+  }
+
+  _skipTo(target) {
+    const m = this.memory, B = m.n * 8;
+    const lam = this.flipRate / B; // 비트 하나의 플립 빈도 (회/년)
+    const p = -Math.expm1(-2 * lam * (target - this.years)) / 2; // Δ 뒤 그 비트가 바뀌어 있을 확률
+    const r = this.flipRng;
+    for (let i = 0; i < m.n; i++) {
+      let mask = 0;
+      for (let b = 0; b < 8; b++) if (r() < p) mask |= 1 << b;
+      m.a[i] ^= mask;
+    }
+    m.descents = m.countDescents();
+    m.flips++; // 화면 표시용 (바뀌었음을 알림)
+    m.lastIdx = -1;
+    this.wasSorted = m.descents === 0;
+    this.mixedSince = -Infinity; // 이제 정상분포에서 뽑힌 상태
+    this.nextFlip = null; // 무기억성: 다음 플립 시각은 다시 뽑는다
+    this._setEpoch(target);
   }
 
   // 정밀 계산으로 돌아갈 때: 다음 플립 시각은 버린다 (무기억성 덕분에 나중에 다시 뽑아도 정확하다)

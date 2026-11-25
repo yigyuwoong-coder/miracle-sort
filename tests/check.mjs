@@ -121,5 +121,40 @@ console.log('8) 천문 시간에서 기적: 정확한 시각에 멈추고 배열
     `N=4, 200번: 기적까지 평균 ${(avg / 1e8).toFixed(2)}억 년 · 독립 계산 ${(sum / T).toFixed(0)}회 플립 = ${(expectYears / 1e8).toFixed(2)}억 년`);
 }
 
+console.log('9) 초고속 건너뛰기: 끝 상태가 하나씩 센 결과와 같은 분포인가');
+{
+  // 512비트 메모리를 Δ년 진행: 기대 플립 = B/2 → 각 비트가 바뀌어 있을 확률 (1 − e^(−1))/2 ≈ 0.316
+  const n = 64, B = n * 8, runs = 300;
+  let exact = 0, skip = 0;
+  for (let k = 0; k < runs; k++) {
+    const A = new World({ n, asteroids: 0, seed: 1000 + k });
+    const S = new World({ n, asteroids: 0, seed: 1000 + k });
+    const a0 = Uint8Array.from(A.memory.a), s0 = Uint8Array.from(S.memory.a);
+    const dy = B / 2 / A.flipRate;
+    A.advance(dy, 1e9); // 하나씩 정확히
+    S._skipTo(S.years + dy); // 건너뛰기
+    const diff = (x, y) => { let d = 0; for (let i = 0; i < n; i++) { let v = x[i] ^ y[i]; while (v) { d += v & 1; v >>= 1; } } return d; };
+    exact += diff(a0, A.memory.a) / B;
+    skip += diff(s0, S.memory.a) / B;
+    if (S.memory.descents !== S.memory.countDescents()) failed++;
+  }
+  const expect = (1 - Math.exp(-1)) / 2;
+  ok(Math.abs(exact / runs - expect) < 0.01 && Math.abs(skip / runs - expect) < 0.01,
+    `바뀐 비트 비율: 하나씩 ${(exact / runs).toFixed(4)} · 건너뛰기 ${(skip / runs).toFixed(4)} · 이론 ${expect.toFixed(4)}`);
+}
+
+console.log('10) 초고속 건너뛰기는 정렬될 확률이 10⁻¹⁷ 미만일 때만 쓴다');
+{
+  const big = new World({ n: 256, asteroids: 0, seed: 2 });
+  const target = big.years + 1e52;
+  big.advanceTo(target, 5);
+  ok(big.years === target && big.memory.descents === big.memory.countDescents(), '2048비트: 10⁵²년을 정확히 도달 (건너뛰기 증명 성립)');
+  const mid = new World({ n: 16, asteroids: 0, seed: 2 });
+  ok(!mid.canSkip(mid.years + 1e52), '128비트: 10⁵²년 안에 기적이 확실하므로 건너뛰지 않는다');
+  const after = new World({ n: 64, asteroids: 0, seed: 3 });
+  after.mixedSince = after.years; // 방금 기적이 난 것처럼 (정렬된 상태에서 출발)
+  ok(!after.canSkip(after.years + 1e52), '512비트라도 기적 직후 충분히 섞이기 전에는 건너뛰지 않는다');
+}
+
 console.log(failed ? `\n실패 ${failed}건` : '\n모두 통과');
 process.exit(failed ? 1 : 0);

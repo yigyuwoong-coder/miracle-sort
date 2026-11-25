@@ -8,7 +8,8 @@ import { toKeys, matches, CODE_LEN } from './unlock.js';
 
 // 정밀 계산: 입자 하나하나를 2.8시간 스텝마다 계산 (빠른 배속이면 여러 스텝을 계산하고 화면은 한 번만 그림)
 // 천문 시간: 비트가 뒤집히는 순간만 정확히 계산하고 그 사이는 건너뜀
-// limit: 한계 속도 — 비트 플립을 하나도 빼먹지 않고 계산이 허락하는 만큼 최대로 (잠김: 후원 창 / 해금 코드)
+// limit: 1항하사(10⁵²) 년/초 — 셀 수 있는 만큼 플립을 정확히 세고, 나머지는 정렬될 수 없음이 증명될 때만 건너뜀
+//        (잠김: 후원 창 / 해금 코드)
 const SPEEDS = [
   { label: '1주/초', yps: 7 / 365.25, astro: false },
   { label: '1달/초', yps: 1 / 12, astro: false },
@@ -17,7 +18,7 @@ const SPEEDS = [
   { label: '100만 년/초', yps: 1e6, astro: true },
   { label: '10억 년/초', yps: 1e9, astro: true },
   { label: '1조 년/초', yps: 1e12, astro: true },
-  { label: '한계 속도', astro: true, limit: true },
+  { label: '1항하사 년/초', yps: 1e52, astro: true, limit: true },
 ];
 const BYTES = [2, 3, 4, 6, 8, 10, 12, 16, 24, 32, 64, 128, 256]; // 16 ~ 2048비트
 const BUDGET_MS = 28; // 한 화면 프레임에서 정밀 계산에 쓸 최대 시간
@@ -54,7 +55,7 @@ function frame(ts) {
     let miracle = false;
     const sp = state.speed;
     if (sp.limit) {
-      miracle = world.advanceBudget(BUDGET_MS);
+      miracle = world.advanceTo(world.years + sp.yps * dt, BUDGET_MS);
     } else if (sp.astro) {
       miracle = world.advance(sp.yps * dt);
     } else {
@@ -151,8 +152,8 @@ skyEl.addEventListener('dblclick', () => sky.resetView());
 // ───────────── 개발자 후원 ─────────────
 function openDonate(label) {
   $('donateSub').textContent = unlocked
-    ? '한계 속도가 이미 해금돼 있다. 응원해 주실 분은 아래로!'
-    : `"${label ?? '한계 속도'}"는 후원으로 해금된다.`;
+    ? '1항하사 년/초가 이미 해금돼 있다. 응원해 주실 분은 아래로!'
+    : `"${label ?? '1항하사 년/초'}"는 후원으로 해금된다.`;
   $('unlockCode').value = '';
   $('unlockMsg').textContent = '';
   $('donateDialog').showModal();
@@ -165,7 +166,7 @@ function unlock() {
   try { localStorage.setItem('miracle-sort-unlocked', '1'); } catch { /* 이번 방문 동안만 해금 */ }
   labelSpeeds();
   if ($('donateDialog').open) $('donateDialog').close();
-  toast('⚡ 해금! "한계 속도"를 쓸 수 있다');
+  toast('⚡ 해금! "1항하사 년/초"를 쓸 수 있다');
 }
 // 화면 아무 데서나 입력: 한/영 상태와 상관없이 물리 키(KeyD → d)로 모은다
 let typed = '';
